@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CFG, DT } from './config.js';
 import { CharacterPool } from './character.js';
 import { buildLevel } from './levels.js';
+import { BIOMES } from './world.js';
 import { Entity } from './entity.js';
 import { BotBrain, botName } from './bots.js';
 import { resolvePlayerBumps, checkObstacleHits } from './physics.js';
@@ -22,24 +23,62 @@ export class Game {
     this.input = input;
     this.host = document.getElementById(hostId);
 
+    // ---- Quality tier (auto-scaled for low-end devices) ----
+    // Guarantees no lag on weak browsers: we drop shadow resolution /
+    // pixel ratio (and can disable shadows entirely) on modest hardware,
+    // while high-end machines get the full cinematic pass.
+    this.quality = detectQuality();
+
     // Renderer (WebGL2 w/ WebGL1 fallback via three's default probe)
-    this.renderer = new THREE.WebGLRenderer({ antialias: window.devicePixelRatio < 2, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: this.quality.antialias,
+      powerPreference: 'high-performance',
+      stencil: false,
+    });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.quality.pixelRatio));
     this.renderer.setSize(innerWidth, innerHeight);
+    // Cinematic colour pipeline: filmic tone-mapping + sRGB output give the
+    // punchy highlights / gentle rolloff that read as "photographic" —
+    // essentially free (a per-pixel curve), no extra geometry or textures.
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    // Real, dramatic shadows — the single biggest realism upgrade. Kept
+    // cheap via a tight frustum that follows the player (see _updateSun).
+    this.renderer.shadowMap.enabled = this.quality.shadows;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.host.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 300);
+    this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 320);
     this.camera.position.set(0, 8, 14);
 
-    // Lighting (Section 6): 1 directional + soft ambient. No shadows.
-    const dir = new THREE.DirectionalLight(0xffffff, 1.05);
-    dir.position.set(30, 60, 20);
-    this.scene.add(dir);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.62));
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 0.4));
+    // Lighting (Section 6 tone, upgraded to cinematic):
+    //  - one strong "sun" directional light that CASTS shadows,
+    //  - a soft sky/ground hemisphere fill for believable bounce,
+    //  - a low ambient floor so shadows stay dramatic (not washed out).
+    const sun = new THREE.DirectionalLight(0xfff4e0, 2.15);
+    sun.position.set(28, 46, 18);
+    sun.castShadow = this.quality.shadows;
+    const sc = sun.shadow;
+    sc.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
+    sc.camera.near = 1;
+    sc.camera.far = 140;
+    const S = 34;                       // ortho half-extent (frustum size)
+    sc.camera.left = -S; sc.camera.right = S;
+    sc.camera.top = S; sc.camera.bottom = -S;
+    sc.bias = -0.0006;
+    sc.normalBias = 0.5;                // hides shadow acne on box faces
+    this.scene.add(sun);
+    this.scene.add(sun.target);
+    this.sun = sun;
 
-    this.charPool = new CharacterPool(this.scene, CFG.MAX_PLAYERS + 4);
+    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a4638, 0.55);
+    this.scene.add(this.hemi);
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.28);
+    this.scene.add(this.ambient);
+
+    this.charPool = new CharacterPool(this.scene, CFG.MAX_PLAYERS + 4, this.quality);
 
     this.entities = [];
     this.human = null;
@@ -75,11 +114,34 @@ export class Game {
     this.renderer.setSize(innerWidth, innerHeight);
   }
 
+  // Tint the lighting to match the active biome so each world feels like a
+  // distinct time-of-day / atmosphere (warm lava dusk, cool icy noon…).
+  _applyBiomeLighting() {
+    const b = BIOMES[this.world?.biome] || BIOMES.jungle;
+    this.sun.color.setHex(b.sun);
+    this.hemi.color.setHex(b.amb);
+    // lava reads hotter/lower-key; ice reads brighter/cooler
+    this.renderer.toneMappingExposure = this.world?.biome === 'lava' ? 0.98
+      : this.world?.biome === 'ice' ? 1.12 : 1.05;
+  }
+
+  // Keep the shadow-casting sun anchored over whatever we're following so
+  // the (deliberately small) shadow frustum always covers the on-screen
+  // action — this is what lets us use a tight, cheap shadow map. (perf)
+  _updateSun(target) {
+    if (!this.sun || !target) return;
+    const tx = target.x, ty = target.y, tz = target.z;
+    this.sun.target.position.set(tx, ty, tz);
+    this.sun.position.set(tx + 28, ty + 46, tz + 18);
+    this.sun.target.updateMatrixWorld();
+  }
+
   // ---------------- PREVIEW (menu backdrop) ----------------
   _buildPreview() {
     this.state = 'preview';
     if (this.world) this.world.clear();
     this.world = buildLevel(this.scene, { type: 'king', biome: 'sky' });
+    this._applyBiomeLighting();
     // single spinning platform vibe: just show the human jiggling
     this.entities = [];
     const h = new Entity({ name: this.save.name || 'You', isBot: false, ...this._cosmetics() });
@@ -116,6 +178,7 @@ export class Game {
     const cfg = CFG.ROUNDS[this.roundIndex];
     if (this.world) this.world.clear();
     this.world = buildLevel(this.scene, cfg);
+    this._applyBiomeLighting();
 
     // Determine survivors: round 0 = full lobby, else carry alive players.
     let survivors;
@@ -507,6 +570,7 @@ export class Game {
     this._renderAvatars();
     this.charPool.updatePoof(frameDt);
     this._updateCamera(frameDt);
+    this._updateSun(this._followTarget || this.human);
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -555,6 +619,7 @@ export class Game {
     let target = null;
     if (this.state === 'preview') {
       target = this.human;
+      this._followTarget = target;
       const yaw = this.previewAngle;
       const tx = Math.sin(yaw) * 7, tz = Math.cos(yaw) * 7;
       this._camPos.lerp(new THREE.Vector3(tx, 4.5, tz), 0.05);
@@ -565,6 +630,7 @@ export class Game {
 
     if (this.state === 'podium') {
       target = this._podiumFocus;
+      this._followTarget = target;
       if (target) {
         const p = new THREE.Vector3(target.x + Math.sin(performance.now()/1500)*6, target.y + 4, target.z + 6);
         this._camPos.lerp(p, 0.05);
@@ -580,6 +646,7 @@ export class Game {
       const specs = this._aliveOrFinished();
       target = specs[this.spectateIndex % Math.max(1, specs.length)] || this.human;
     }
+    this._followTarget = target;
     if (!target) return;
 
     const yaw = this.input.cameraYaw;
@@ -609,3 +676,43 @@ export class Game {
 import { getSkin, grantRewards, writeSave } from './cosmetics.js';
 function getSkinColor(e) { return getSkin(e.skinId).body; }
 function grantAndSave(save, coins, xp) { return grantRewards(save, { coins, xp }); }
+
+// ------------------------------------------------------------
+// Quality auto-scaling (Section 7: must not lag on weak devices).
+// We probe the device's memory / core count / GPU renderer string and
+// pick a tier. Everything visual (shadows, shadow-map size, AA, pixel
+// ratio) scales down together so a 3-year-old phone or an Intel-UHD
+// Chromebook still holds framerate, while a desktop gets the full
+// cinematic shadow pass.
+// ------------------------------------------------------------
+function detectQuality() {
+  const mem = navigator.deviceMemory || 4;         // GB (heuristic)
+  const cores = navigator.hardwareConcurrency || 4;
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const dpr = window.devicePixelRatio || 1;
+
+  // Sniff the GPU renderer to catch software / very weak GPUs.
+  let weakGpu = false;
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2') || c.getContext('webgl');
+    if (!gl) weakGpu = true;
+    else {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const r = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)).toLowerCase() : '';
+      if (/swiftshader|software|llvmpipe|mesa offscreen/.test(r)) weakGpu = true;
+    }
+  } catch { /* ignore */ }
+
+  // Score the device.
+  const low = weakGpu || mem <= 3 || cores <= 3 || (coarse && dpr < 2 && mem <= 4);
+  const high = !low && mem >= 8 && cores >= 8 && !coarse;
+
+  if (low) {
+    return { tier: 'low', shadows: false, shadowMap: 0, antialias: false, pixelRatio: 1, charShadows: false };
+  }
+  if (high) {
+    return { tier: 'high', shadows: true, shadowMap: 2048, antialias: dpr < 2, pixelRatio: 2, charShadows: true };
+  }
+  return { tier: 'mid', shadows: true, shadowMap: 1024, antialias: false, pixelRatio: Math.min(dpr, 1.5), charShadows: true };
+}

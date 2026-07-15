@@ -54,6 +54,8 @@ async function boostrap() {
     onSave: () => { writeSave(save); },
   };
   game.setHandlers(handlers);
+  // expose for perf diagnostics / e2e tests (no effect on gameplay)
+  window.__game = game;
 
   setProgress(100, TIPS[4]);
 

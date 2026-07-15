@@ -37,11 +37,16 @@ const _color = new THREE.Color();
 const _hidden = new THREE.Matrix4().makeScale(0, 0, 0); // collapse to hide
 
 export class CharacterPool {
-  constructor(scene, capacity) {
+  constructor(scene, capacity, quality = { charShadows: false }) {
     this.capacity = capacity;
     this.meshes = {};
+    // Real per-limb shadows on high/mid tiers; blob decals on low tier.
+    this.realShadows = !!quality.charShadows;
     const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: false });
+    // MeshStandardMaterial => the avatars pick up the same cinematic lighting
+    // (directional highlights + shadow) as the world. Still one material,
+    // still fully instanced: ~7 draw calls for all 32 players.
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.05 });
 
     for (const p of PARTS) {
       const m = new THREE.InstancedMesh(geo, mat.clone(), capacity);
@@ -49,12 +54,15 @@ export class CharacterPool {
       m.frustumCulled = false;
       // enable per-instance color
       m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
-      m.castShadow = false; m.receiveShadow = false;
+      // Torso/head/legs cast (arms/hat skipped to trim shadow draw work).
+      m.castShadow = this.realShadows && (p === 'torso' || p === 'head' || p === 'legL' || p === 'legR');
+      m.receiveShadow = false;
       scene.add(m);
       this.meshes[p] = m;
     }
 
-    // Blob shadow pool (flat dark circles) — Section 6.
+    // Blob shadow pool (flat dark circles) — used only on the low tier where
+    // real shadow maps are disabled, so we still ground the characters.
     const shadowGeo = new THREE.CircleGeometry(0.55, 12);
     shadowGeo.rotateX(-Math.PI / 2);
     const shadowMat = new THREE.MeshBasicMaterial({ color: 0x0a0f1f, transparent: true, opacity: 0.28, depthWrite: false });
@@ -62,6 +70,7 @@ export class CharacterPool {
     this.shadow.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.shadow.frustumCulled = false;
     this.shadow.renderOrder = 1;
+    this.shadow.visible = !this.realShadows;
     scene.add(this.shadow);
 
     // Eliminated "poof" particle pool (tiny instanced cubes) — Section 2.
