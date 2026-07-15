@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#22d3ee" />
+  <meta name="description" content="BlockRoyale.io — a lightweight 3D voxel party battle-royale. Race, tumble and win the Crown!" />
+  <title>BlockRoyale.io — Voxel Party Battle Royale</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%2322d3ee'/%3E%3Crect x='28' y='28' width='44' height='44' rx='8' fill='%23fff'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <!-- 3D canvas is injected here by the engine -->
+  <div id="game-root"></div>
+
+  <!-- ===== HUD (in-match) ===== -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="hud-round" class="hud-pill">ROUND 1</div>
+      <div id="hud-alive" class="hud-pill"><span class="hud-icon">👥</span> <span id="alive-count">32</span></div>
+      <div id="hud-timer" class="hud-pill">0:60</div>
+    </div>
+    <div id="hud-objective" class="hud-banner">Reach the finish line!</div>
+    <div id="hud-place" class="hidden"></div>
+    <div id="hud-toast-wrap"></div>
+  </div>
+
+  <!-- ===== Mobile touch controls ===== -->
+  <div id="touch-controls" class="hidden">
+    <div id="joystick-zone">
+      <div id="joystick-base"><div id="joystick-thumb"></div></div>
+    </div>
+    <div id="touch-actions">
+      <button id="btn-dive" class="touch-btn">DIVE</button>
+      <button id="btn-jump" class="touch-btn touch-jump">JUMP</button>
+    </div>
+  </div>
+
+  <!-- App-level UI overlays (menus, shop, podium) mount here -->
+  <div id="ui-root"></div>
+
+  <!-- ===== Boot / loading splash ===== -->
+  <div id="boot">
+    <div class="boot-logo">
+      <span class="boot-block b1"></span>
+      <span class="boot-block b2"></span>
+      <span class="boot-block b3"></span>
+    </div>
+    <div class="boot-title">BLOCK<span>ROYALE</span>.IO</div>
+    <div class="boot-bar"><div id="boot-fill"></div></div>
+    <div class="boot-tip" id="boot-tip">Building Craftland…</div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

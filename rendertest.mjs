@@ -1,0 +1,25 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'] });
+const p = await b.newPage({ viewport:{width:1024,height:640} });
+const errs = [];
+p.on('pageerror', e => errs.push('PAGEERR: '+e.message));
+p.on('console', m => { if(m.type()==='error' && !m.text().includes('403') && !m.text().toLowerCase().includes('font')) errs.push('CONSOLE-ERR: '+m.text()); });
+await p.goto('http://localhost:3000', { waitUntil:'domcontentloaded' });
+await p.waitForSelector('.menu-logo', { timeout:15000 });
+await p.waitForTimeout(1200);
+await p.screenshot({ path:'/tmp/01menu.png' });
+console.log('MENU rendered');
+await p.click('#m-play');
+await p.waitForTimeout(2500);
+await p.screenshot({ path:'/tmp/02countdown.png' });
+await p.waitForTimeout(4500);
+await p.keyboard.down('w'); await p.waitForTimeout(1200); await p.keyboard.press(' '); await p.waitForTimeout(800); await p.keyboard.up('w');
+await p.screenshot({ path:'/tmp/03play.png' });
+console.log('GAMEPLAY rendered');
+const info = await p.evaluate(() => {
+  const c = document.querySelector('#game-root canvas');
+  return { hasCanvas: !!c, w: c?.width, h: c?.height };
+});
+console.log('CANVAS:', JSON.stringify(info));
+console.log('ERRORS:', errs.length ? errs.join(' | ') : 'NONE');
+await b.close();
