@@ -360,7 +360,7 @@ export class Game {
     }
   }
 
-  // Sample the top surface of the highest solid platform under (x,z).
+  // Sample the top surface of the highest solid platform OR ramp under (x,z).
   _groundHeightAt(x, z) {
     let best = null;
     for (const p of this.world.platforms) {
@@ -371,6 +371,8 @@ export class Game {
       const top = p.y + p.sy / 2;
       if (best == null || top > best) best = top;
     }
+    const ry = this.world.rampHeightAt ? this.world.rampHeightAt(x, z) : null;
+    if (ry != null && (best == null || ry > best)) best = ry;
     return best;
   }
 

@@ -45,6 +45,7 @@ export class World {
     this.group = new THREE.Group();
     scene.add(this.group);
     this.platforms = [];      // solid AABBs for collision
+    this.ramps = [];          // sloped surfaces for collision (Task #3)
     this.obstacles = [];      // {type, mesh, aabb, update(dt,t)}
     this.hazards = [];        // lava planes etc (fall/kill zones handled by Y)
     this.startZ = 0;
@@ -104,6 +105,14 @@ export class World {
     return aabb;
   }
 
+  // Convenience: add a flat walkable slab whose TOP face is exactly at
+  // `surfaceTop`. Keeps level code in walkable-surface coordinates so flats
+  // and ramps line up seamlessly (Task #3 / fall-through fix).
+  addSurface(x, surfaceTop, z, w, len, color, opts = {}) {
+    const thick = opts.thick || 1.2;
+    return this.addPlatform(x, surfaceTop - thick / 2, z, w, thick, len, color, opts);
+  }
+
   // Pure DECORATION box — rendered but NOT collidable (scenery on the
   // sides of the track: rocks, trees, pillars, mountains). Batched so
   // the whole course's scenery costs only a handful of draw calls. (Bug #4)
@@ -160,18 +169,67 @@ export class World {
     }
   }
 
-  // A simple ramp (sloped box) that players can run up. Approximated for
-  // collision by a short flight of thin stair AABBs so the lightweight
-  // AABB solver still lands players correctly on the incline. (Bug #4)
-  addRamp(x, yBottom, z, w, rise, run, dir, color) {
-    // dir: +1 ascends toward +Z, -1 ascends toward -Z
-    const steps = Math.max(3, Math.round(run / 1.4));
-    for (let i = 0; i < steps; i++) {
-      const t = (i + 0.5) / steps;
-      const cz = z + dir * (t - 0.5) * run;
-      const cy = yBottom + t * rise;
-      this.addPlatform(x, cy, cz, w, 0.6, run / steps + 0.3, color);
+  // A TRUE sloped ramp (Task #3: natural incline, ZERO steps/stairs).
+  //   x        : lane centre X
+  //   zLow     : Z of the LOW edge of the ramp
+  //   zHigh    : Z of the HIGH edge of the ramp
+  //   yLowTop  : WALKABLE surface height at the low edge
+  //   yHighTop : WALKABLE surface height at the high edge
+  //   w        : lane width
+  //
+  // Everything is expressed in WALKABLE-SURFACE heights so ramp ends line up
+  // exactly with adjacent flat-platform tops (no seams / no drop-throughs).
+  // Collision is a single analytic sloped plane (resolveEntity samples it),
+  // so players glide smoothly up/down with no stepping. The VISUAL is one
+  // slab, rotated to the slope angle, whose TOP face coincides with that
+  // plane — what you see is exactly what you stand on.
+  addRamp(x, zLow, zHigh, yLowTop, yHighTop, w, color) {
+    const dz = zHigh - zLow;                 // signed run along Z
+    const dy = yHighTop - yLowTop;            // signed rise
+    const slopeZ = dz !== 0 ? dy / dz : 0;    // dy per +1 z
+
+    const zMin = Math.min(zLow, zHigh), zMax = Math.max(zLow, zHigh);
+    const yAtZmin = zLow <= zHigh ? yLowTop : yHighTop;
+
+    // Analytic collision surface.
+    this.ramps.push({
+      x, sx: w, zMin, zMax, zRef: zMin, yRef: yAtZmin, slopeZ, solid: true,
+    });
+
+    // Visual slab. The TOP face must sit on the plane, so we place a slab of
+    // thickness T whose centre is T/2 below the surface midpoint, then tilt.
+    const run = Math.abs(dz);
+    const len3d = Math.hypot(run, Math.abs(dy));
+    const angle = Math.atan2(dy, dz);         // slope angle wrt +Z
+    const T = 0.5;
+    const midY = (yLowTop + yHighTop) / 2 - T / 2 * Math.cos(angle);
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(w, T, len3d), this._mat(color));
+    slab.position.set(x, midY, (zLow + zHigh) / 2);
+    slab.rotation.x = -angle;                 // +X rotation lowers the +Z end
+    slab.castShadow = true; slab.receiveShadow = true;
+    this.group.add(slab);
+
+    // Solid skirt below the incline so there is never a see-through gap and
+    // the mountain reads as massive. Purely visual (decor batch).
+    const skirtH = Math.min(yLowTop, yHighTop);
+    if (skirtH > 0.6) {
+      this._batch(this._decorBatch, x, skirtH / 2, (zLow + zHigh) / 2, w * 0.98, skirtH, run, color);
     }
+    return this.ramps[this.ramps.length - 1];
+  }
+
+  // Sample the ramp surface height at (x,z) if the point is over a ramp.
+  // Returns null when not above any ramp. (Task #3 slope collision)
+  rampHeightAt(x, z) {
+    let best = null;
+    for (const r of this.ramps) {
+      if (r.solid === false) continue;
+      if (x < r.x - r.sx / 2 || x > r.x + r.sx / 2) continue;
+      if (z < r.zMin - 0.05 || z > r.zMax + 0.05) continue;
+      const y = r.yRef + r.slopeZ * (z - r.zRef);
+      if (best == null || y > best) best = y;
+    }
+    return best;
   }
 
   // Merge every collected static box into one mesh per color. Called once
@@ -203,7 +261,7 @@ export class World {
     this.scene.remove(this.group);
     this.group = new THREE.Group();
     this.scene.add(this.group);
-    this.platforms = []; this.obstacles = []; this.hazards = [];
+    this.platforms = []; this.ramps = []; this.obstacles = []; this.hazards = [];
     this.spawnPoints = []; this.throne = null; this._t = 0;
     this._mergedMeshes = [];
     this._decorBatch.clear(); this._terrainBatch.clear();

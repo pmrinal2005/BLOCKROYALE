@@ -10,19 +10,37 @@ import { CFG } from './config.js';
 const R = CFG.PLAYER_RADIUS;
 const H = CFG.PLAYER_HEIGHT;
 
-// Resolve an entity (feet at e.y) against all solid platforms.
-// Returns { grounded, groundY, ice, conveyor }.
+// Resolve an entity (feet at e.y) against all solid platforms AND sloped
+// ramps. Returns { grounded, groundY, ice, conveyor }.
+//
+// FALL-THROUGH FIX + Task #3 (smooth slopes):
+//  - Flat platforms and analytic ramps are both considered. We find the
+//    HIGHEST walkable surface directly under the player's XZ footprint.
+//  - "Snap-up" band is generous (STEP_UP) so running onto the bottom of a
+//    ramp, over a seam between two segments, or across a small height change
+//    lands cleanly instead of clipping through.
+//  - "Snap-down" (STICK_DOWN) keeps a grounded player glued to a descending
+//    slope: without it, moving downhill fast makes the feet float above the
+//    surface each tick, gravity never re-touches, and the player "falls off"
+//    a slope they should be running down. This was a primary void-fall cause.
+//  - Tall platforms (sy>1.2) still act as walls via AABB side push-out so the
+//    collidable roadside boulders/pillars block the lane (Task #1).
 export function resolveEntity(e, world, dt) {
-  let grounded = false;
-  let groundY = -999;
-  let iceGround = false;
-  let conveyor = null;
-
   const minX = e.x - R, maxX = e.x + R;
   const minZ = e.z - R, maxZ = e.z + R;
   const feet = e.y;
   const head = e.y + H;
 
+  const STEP_UP = 0.6;      // how far ABOVE feet a surface can be and still catch
+  const STICK_DOWN = 0.9;   // how far BELOW feet we snap down while grounded
+  const wasGrounded = !!e.grounded;
+
+  let groundY = -Infinity;
+  let iceGround = false;
+  let conveyor = null;
+  let found = false;
+
+  // ---- flat platforms (top faces) + wall push-out ----
   for (const p of world.platforms) {
     if (p.solid === false) continue;
     const pMinX = p.x - p.sx / 2, pMaxX = p.x + p.sx / 2;
@@ -32,37 +50,40 @@ export function resolveEntity(e, world, dt) {
     // horizontal overlap?
     if (maxX <= pMinX || minX >= pMaxX || maxZ <= pMinZ || minZ >= pMaxZ) continue;
 
-    // landing on top: falling and feet near top surface
-    if (e.vy <= 0.001 && feet <= pTop + 0.35 && feet >= pTop - 0.6) {
-      if (pTop > groundY) {
-        groundY = pTop; grounded = true;
-        iceGround = !!p.ice;
-        conveyor = p.conveyor || null;
-      }
-    } else if (feet < pTop - 0.05 && head > pBot + 0.05) {
-      // side penetration — push out on the smallest axis (horizontal)
-      const overlapL = maxX - pMinX;
-      const overlapR = pMaxX - minX;
-      const overlapF = maxZ - pMinZ;
-      const overlapB = pMaxZ - minZ;
+    // Consider this top as ground if it is at/below feet (within snap-down
+    // when grounded) or just above feet (within step-up when descending/flat).
+    const downBand = wasGrounded ? STICK_DOWN : 0.12;
+    const canLand = e.vy <= 0.5 && feet <= pTop + STEP_UP && feet >= pTop - downBand;
+    if (canLand) {
+      if (pTop > groundY) { groundY = pTop; iceGround = !!p.ice; conveyor = p.conveyor || null; found = true; }
+    } else if (feet < pTop - 0.08 && head > pBot + 0.08 && p.sy > 1.2) {
+      // side penetration into a WALL-height block — push out on smallest axis
+      const overlapL = maxX - pMinX, overlapR = pMaxX - minX;
+      const overlapF = maxZ - pMinZ, overlapB = pMaxZ - minZ;
       const m = Math.min(overlapL, overlapR, overlapF, overlapB);
-      // only push if this platform is tall enough to be a wall
-      if (p.sy > 1.2) {
-        if (m === overlapL) e.x -= overlapL;
-        else if (m === overlapR) e.x += overlapR;
-        else if (m === overlapF) e.z -= overlapF;
-        else e.z += overlapB;
-      }
+      if (m === overlapL) e.x -= overlapL;
+      else if (m === overlapR) e.x += overlapR;
+      else if (m === overlapF) e.z -= overlapF;
+      else e.z += overlapB;
     }
   }
 
-  if (grounded) {
-    if (e.y < groundY) e.y = groundY;
-    if (e.y <= groundY + 0.05) { e.y = groundY; if (e.vy < 0) e.vy = 0; }
-    else grounded = false;
+  // ---- sloped ramps (analytic top surface) ----
+  const ry = world.rampHeightAt ? world.rampHeightAt(e.x, e.z) : null;
+  if (ry != null) {
+    const downBand = wasGrounded ? STICK_DOWN : 0.12;
+    if (e.vy <= 0.5 && feet <= ry + STEP_UP && feet >= ry - downBand) {
+      if (ry > groundY) { groundY = ry; iceGround = false; conveyor = null; found = true; }
+    }
   }
 
-  return { grounded, groundY: grounded ? groundY : e.y, ice: iceGround, conveyor };
+  if (found) {
+    e.y = groundY;
+    if (e.vy < 0) e.vy = 0;
+    return { grounded: true, groundY, ice: iceGround, conveyor };
+  }
+
+  return { grounded: false, groundY: e.y, ice: false, conveyor: null };
 }
 
 // Soft player-vs-player collision (Section 4: comedic bump).

@@ -155,11 +155,30 @@ html, body {
 @keyframes toastOut { to { opacity: 0; transform: translateY(-30px) scale(.9); } }
 
 /* ============ Countdown ============ */
-#countdown { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; }
-.count-num { font-size: clamp(90px, 30vw, 220px); font-weight: 800; color: #fff;
-  text-shadow: 0 8px 0 var(--ink-soft), 0 12px 30px rgba(0,0,0,.4);
-  animation: countPop .9s ease both; }
-@keyframes countPop { 0% { transform: scale(2.4); opacity: 0; } 30% { opacity: 1; } 100% { transform: scale(.5); opacity: 0; } }
+#countdown { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; pointer-events: none; }
+/* High-contrast number so it is always visible over ANY biome sky (bug #4):
+   bright fill + dark drop-shadow "sticker" outline + soft glow. The pop
+   animation settles at full opacity (fill:forwards) so the digit stays on
+   screen for its whole second instead of fading to nothing. */
+.count-num {
+  font-size: clamp(96px, 30vw, 240px); font-weight: 800; line-height: 1;
+  color: #fff; letter-spacing: 2px;
+  -webkit-text-stroke: 4px var(--ink, #1a2140);
+  text-shadow:
+    0 6px 0 var(--ink-soft, #2a3566),
+    0 10px 0 rgba(0,0,0,.25),
+    0 0 42px rgba(34,211,238,.85),
+    0 14px 34px rgba(0,0,0,.45);
+  animation: countPop .55s cubic-bezier(.2,1.4,.4,1) forwards;
+}
+.count-go {
+  color: #34d399;
+  -webkit-text-stroke: 5px var(--ink, #1a2140);
+  text-shadow: 0 8px 0 #0f8a5f, 0 0 60px rgba(52,211,153,.9), 0 16px 40px rgba(0,0,0,.5);
+  animation: countGo .8s cubic-bezier(.2,1.4,.4,1) forwards;
+}
+@keyframes countPop { 0% { transform: scale(2.2); opacity: 0; } 45% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes countGo  { 0% { transform: scale(.4) rotate(-8deg); opacity: 0; } 40% { transform: scale(1.25) rotate(3deg); opacity: 1; } 100% { transform: scale(1) rotate(0); opacity: 1; } }
 
 /* ============ Mobile controls ============ */
 #touch-controls { position: fixed; inset: 0; z-index: 35; pointer-events: none; }

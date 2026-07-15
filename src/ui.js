@@ -222,12 +222,26 @@ export function showHow() {
 }
 
 // ---------- COUNTDOWN ----------
+// Bug #4 FIX: `showCountdown` is called every render frame, but we must only
+// rebuild the DOM (which restarts the CSS pop animation) when the DISPLAYED
+// value actually changes. Rewriting innerHTML every frame restarted the 0.9s
+// `countPop` animation each frame, pinning it at its opacity:0 first keyframe
+// so the big number was effectively invisible the whole countdown.
+let _cdLast = null;
 export function showCountdown(n, label) {
+  const text = n > 0 ? String(n) : (label || 'GO!');
   let cd = document.getElementById('countdown');
-  if (!cd) { cd = el('<div id="countdown"></div>'); root().appendChild(cd); }
-  cd.innerHTML = `<div class="count-num">${n > 0 ? n : (label || 'GO!')}</div>`;
+  if (!cd) { cd = el('<div id="countdown"></div>'); root().appendChild(cd); _cdLast = null; }
+  if (text === _cdLast) return;          // unchanged -> don't restart animation
+  _cdLast = text;
+  const cls = n > 0 ? 'count-num' : 'count-num count-go';
+  cd.innerHTML = `<div class="${cls}">${text}</div>`;
 }
-export function hideCountdown() { const cd = document.getElementById('countdown'); if (cd) cd.remove(); }
+export function hideCountdown() {
+  const cd = document.getElementById('countdown');
+  if (cd) cd.remove();
+  _cdLast = null;
+}
 
 // ---------- PODIUM ----------
 export function showPodium(results, rewards, save, handlers) {

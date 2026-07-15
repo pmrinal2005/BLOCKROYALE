@@ -52,85 +52,98 @@ function decorateSides(world, b, zFrom, zTo, surfaceY, laneHalf) {
   }
 }
 
-// Build a LONGER race gauntlet with elevation changes (ramps up onto
-// mountainous plateaus and back down), gaps, side scenery, collidable
-// roadside boulders/pillars, and a rich mix of obstacles — all still
-// merged/instanced boxes for performance. (Bug #4 / Task #1)
+// Build a LONGER race gauntlet with SMOOTH elevation changes (Task #3: true
+// ramps, zero stairs) that climb onto mountainous plateaus and descend again,
+// jumpable gaps, rich biome-specific roadside scenery + collidable structures
+// you must weave around (Task #1), and a varied obstacle mix — all merged /
+// instanced for a tiny draw-call count.
+//
+// COORDINATE CONVENTION: `surf` is always the WALKABLE TOP surface height.
+// Flats are laid with addSurface(...top=surf...) and ramps interpolate between
+// two surface heights, so segments meet seamlessly and nothing drops through.
 function buildRace(world, cfg) {
   const b = BIOMES[cfg.biome];
   const laneW = 16;
   const laneHalf = laneW / 2;
   world.laneHalf = laneHalf;
-  // Longer courses. Round 3 (sprint) is a touch shorter than round 1.
-  const length = cfg.name && cfg.name.includes('3') ? 280 : 340;
+  // Longer courses (Task #1). Round 3 (sprint) is a touch shorter than round 1.
+  const length = cfg.name && cfg.name.includes('3') ? 340 : 430;
   world.startZ = 0;
   const ice = cfg.biome === 'ice';
+  const START_TOP = 1;   // walkable height of the start pad
 
   // start pad
-  world.addPlatform(0, 0, -6, laneW, 1, 14, b.ground2);
+  world.addSurface(0, START_TOP, -6, laneW, 14, b.ground2, { ice });
   for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
     const col = i % 8, row = (i / 8) | 0;
-    world.spawnPoints.push({ x: -laneW / 2 + 2 + col * 1.7, y: 1.2, z: -10 + row * 1.6 });
+    world.spawnPoints.push({ x: -laneW / 2 + 2 + col * 1.7, y: START_TOP + 0.2, z: -10 + row * 1.6 });
   }
-  decorateSides(world, b, -14, 2, 0.5, laneHalf);
+  decorateSides(world, b, -14, 2, START_TOP, laneHalf);
 
-  // Walk the course, carrying a running surface height `y` so we can build
-  // hills. Each iteration lays one segment + its obstacle theme.
-  let z = 4;
-  let y = 0;          // top surface of current segment sits at y + 0.5
+  // Walk the course, carrying a running walkable-surface height `surf`.
+  let z = 1;            // build cursor just past the start pad (z=1 is its far edge)
+  let surf = START_TOP;
   let seg = 0;
 
   while (z < length) {
-    // --- optional gap the player must jump/dive across ---
-    const gap = (seg > 1 && Math.random() < 0.32) ? rand(2.4, 4.2) : 0;
+    // --- optional gap the player must jump/dive across (only on flat runs so
+    //     you never have to blind-jump off a slope). ---
+    const gap = (seg > 1 && surf <= START_TOP + 0.2 && Math.random() < 0.28) ? rand(2.2, 3.8) : 0;
     if (gap > 0) z += gap;
 
-    // --- optional elevation change: ramp up or down onto a plateau ---
-    // Bigger, multi-tier climbs create mountainous stretches. (Task #1)
-    const doHill = seg > 0 && Math.random() < 0.5;
+    // --- optional SMOOTH elevation change onto / off a plateau (Task #1/#3).
+    //     Multi-tier climbs build genuine mountain stretches; ramps are gentle
+    //     enough (rise/run < ~0.55) that running up/down never launches or
+    //     drops the player. ---
+    const doHill = seg > 0 && Math.random() < 0.55;
     if (doHill) {
-      const dir = (y <= 0.01 || Math.random() < 0.62) ? 1 : -1; // prefer up
-      const tiers = 1 + (Math.random() < 0.4 ? 1 : 0);
+      const goUp = surf <= START_TOP + 0.2 ? true : (Math.random() < 0.6);
+      const tiers = 1 + (Math.random() < 0.45 ? 1 : 0);
       for (let ti = 0; ti < tiers; ti++) {
-        const rise = dir * rand(3, 6.5);
-        const run = rand(7, 12);
-        world.addRamp(0, y, z + run / 2, laneW, rise, run, 1, b.accent);
+        const run = rand(9, 15);
+        let rise = rand(3, 6);
+        if (!goUp) rise = -Math.min(rise, surf - START_TOP);   // never below ground
+        if (Math.abs(rise) < 0.4) break;
+        const nextSurf = Math.max(START_TOP, surf + rise);
+        world.addRamp(0, z, z + run, surf, nextSurf, laneW, seg % 2 ? b.ground : b.ground2);
         z += run;
-        y = Math.max(0, y + rise);
-        // short flat landing between tiers
+        surf = nextSurf;
+        // short flat landing between tiers so the climb reads as terraced
         if (ti < tiers - 1) {
-          const lp = rand(4, 7);
-          world.addPlatform(0, y, z + lp / 2, laneW, 1, lp, b.ground2, { ice });
+          const lp = rand(5, 8);
+          world.addSurface(0, surf, z + lp / 2, laneW, lp, b.ground2, { ice });
+          decorateSides(world, b, z, z + lp, surf, laneHalf);
           z += lp;
         }
       }
     }
 
-    const segLen = rand(13, 20);
-    const surfaceY = y;
+    const segLen = rand(14, 22);
     const midZ = z + segLen / 2;
-    world.addPlatform(0, surfaceY, midZ, laneW, 1, segLen, seg % 2 ? b.ground : b.ground2, { ice });
+    world.addSurface(0, surf, midZ, laneW, segLen, seg % 2 ? b.ground : b.ground2, { ice });
 
-    // side railings on elevated plateaus so it reads as a mountain path
-    if (surfaceY > 1) {
+    // low side railings on elevated plateaus so it reads as a mountain path
+    // and softly keeps players from sliding off the edge.
+    if (surf > START_TOP + 0.6) {
       for (const side of [-1, 1]) {
-        world.addDecor(side * (laneHalf - 0.3), surfaceY + 1.0, midZ, 0.4, 1.4, segLen, b.accent);
+        world.addPlatform(side * (laneHalf + 0.15), surf + 0.5, midZ, 0.5, 1.6, segLen, b.rock);
       }
     }
-    decorateSides(world, b, z - 2, z + segLen + 2, surfaceY + 0.5, laneHalf);
+    decorateSides(world, b, z - 2, z + segLen + 2, surf, laneHalf);
 
-    // --- collidable roadside obstacle: a big boulder/pillar jutting into
-    // the lane that players must weave around (real 3D navigation). ---
+    // --- collidable roadside structure jutting into the lane: a chunky
+    //     boulder/pillar you must route around (real 3D navigation, Task #1).
+    //     Tall enough (sy>1.2) that the solver treats it as a wall. ---
     if (seg > 1 && Math.random() < 0.5) {
       const side = Math.random() < 0.5 ? -1 : 1;
       const bw = rand(2, 3.6);
-      world.addPlatform(side * (laneHalf - bw * 0.4), surfaceY + 1.6, midZ + rand(-3, 3),
-        bw, 3.2, bw, b.rock);   // tall => acts as a wall in the AABB solver
+      world.addPlatform(side * (laneHalf - bw * 0.45), surf + 1.6, midZ + rand(-3, 3),
+        bw, 3.4, bw, b.rock);
     }
 
-    // --- obstacle theme for this segment ---
-    const top = surfaceY + 1;   // walkable surface height
-    const themes = ['hammers', 'rotor', 'dice', 'blink', 'movers', 'pusher', 'vines', 'clear'];
+    // --- obstacle theme for this segment (top = walkable surface). ---
+    const top = surf;
+    const themes = ['hammers', 'rotor', 'dice', 'blink', 'movers', 'pusher', 'vines', 'clear', 'clear'];
     const kind = themes[(Math.random() * themes.length) | 0];
     if (kind === 'hammers') {
       const n = 2 + (Math.random() * 3 | 0);
@@ -143,10 +156,10 @@ function buildRace(world, cfg) {
     } else if (kind === 'dice') {
       const n = 1 + (Math.random() * 2 | 0);
       for (let i = 0; i < n; i++)
-        world.addRollingDie(rand(-5, 5), top - 0.1, z - 2, z + segLen + 2, rand(5, 9), rand(1.6, 2.2));
+        world.addRollingDie(rand(-5, 5), top + 0.9, z - 2, z + segLen + 2, rand(5, 9), rand(1.6, 2.2));
     } else if (kind === 'blink') {
       for (let i = 0; i < 6; i++)
-        world.addBlinkTile(rand(-5, 5), top, z + 2 + i * (segLen / 7), 2.4, rand(2.5, 4), rand(0, 3));
+        world.addBlinkTile(rand(-5, 5), top + 0.05, z + 2 + i * (segLen / 7), 2.4, rand(2.5, 4), rand(0, 3));
     } else if (kind === 'movers') {
       const n = 1 + (Math.random() * 2 | 0);
       for (let i = 0; i < n; i++)
@@ -165,17 +178,17 @@ function buildRace(world, cfg) {
     seg++;
   }
 
-  // ramp back down to a ground-level finish if we ended up high
-  if (y > 1) {
-    const run = 10;
-    world.addRamp(0, y, z + run / 2, laneW, -y, run, 1, b.accent);
-    z += run; y = 0;
+  // smoothly ramp back down to ground level for the finish if we ended high
+  if (surf > START_TOP + 0.2) {
+    const run = Math.max(10, (surf - START_TOP) * 2.4);
+    world.addRamp(0, z, z + run, surf, START_TOP, laneW, b.accent);
+    z += run; surf = START_TOP;
   }
 
   // finish pad + gate
-  world.addPlatform(0, y, z + 6, laneW + 4, 1, 12, b.accent);
-  decorateSides(world, b, z, z + 14, y + 0.5, laneHalf + 2);
-  world.addFinishGate(0, y + 0.5, z + 2, 6);
+  world.addSurface(0, surf, z + 6, laneW + 4, 12, b.accent);
+  decorateSides(world, b, z, z + 14, surf, laneHalf + 2);
+  world.addFinishGate(0, surf, z + 2, 6);
   world.finishZ = z + 2;
 }
 
@@ -183,13 +196,13 @@ function buildRace(world, cfg) {
 function buildSurvival(world, cfg) {
   const b = BIOMES[cfg.biome];
   const R = 13;
-  world.addPlatform(0, 0, 0, R * 2, 1, R * 2, b.ground);
-  world.addPlatform(0, 0.5, 0, R * 2 - 3, 0.3, R * 2 - 3, b.ground2);
+  world.addSurface(0, 1, 0, R * 2, R * 2, b.ground);
+  world.addSurface(0, 1.3, 0, R * 2 - 3, R * 2 - 3, b.ground2, { thick: 0.4 });
 
   // spawn ring
   for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
     const a = (i / CFG.MAX_PLAYERS) * Math.PI * 2;
-    world.spawnPoints.push({ x: Math.cos(a) * (R - 3), y: 1.3, z: Math.sin(a) * (R - 3) });
+    world.spawnPoints.push({ x: Math.cos(a) * (R - 3), y: 1.5, z: Math.sin(a) * (R - 3) });
   }
 
   // central rotating bars that sweep the floor
@@ -204,7 +217,7 @@ function buildSurvival(world, cfg) {
   // blink tiles near edge to shrink safe zone over time
   for (let i = 0; i < 10; i++) {
     const a = (i / 10) * Math.PI * 2;
-    world.addBlinkTile(Math.cos(a) * (R - 2), 1.0, Math.sin(a) * (R - 2), 2.6, rand(3, 5), rand(0, 4));
+    world.addBlinkTile(Math.cos(a) * (R - 2), 1.05, Math.sin(a) * (R - 2), 2.6, rand(3, 5), rand(0, 4));
   }
   // scenic backdrop mountains ring the arena
   for (let i = 0; i < 8; i++) {
@@ -218,17 +231,17 @@ function buildSurvival(world, cfg) {
 function buildKing(world, cfg) {
   const b = BIOMES[cfg.biome];
   const R = 9;
-  world.addPlatform(0, 0, 0, R * 2, 1, R * 2, b.ground2);
-  // raised throne cube
-  world.addPlatform(0, 1.4, 0, 5, 1.8, 5, b.accent);
-  world.throne = { x: 0, z: 0, r: 3.2, y: 2.4 };
+  world.addSurface(0, 1, 0, R * 2, R * 2, b.ground2);
+  // raised throne cube (walkable top at 2.4)
+  world.addSurface(0, 2.4, 0, 5, 5, b.accent, { thick: 2.4 });
+  world.throne = { x: 0, z: 0, r: 3.2, y: 2.2 };
 
   for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
     const a = (i / CFG.MAX_PLAYERS) * Math.PI * 2;
-    world.spawnPoints.push({ x: Math.cos(a) * (R - 2), y: 1.3, z: Math.sin(a) * (R - 2) });
+    world.spawnPoints.push({ x: Math.cos(a) * (R - 2), y: 1.4, z: Math.sin(a) * (R - 2) });
   }
   // sweeping bar to knock players off the throne
-  world.addRotor(0, 2.9, 0, 8, 1.1);
+  world.addRotor(0, 3.1, 0, 8, 1.1);
   // pendulum hammers around edge
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2;
