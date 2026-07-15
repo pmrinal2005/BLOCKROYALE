@@ -53,30 +53,47 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 320);
     this.camera.position.set(0, 8, 14);
 
-    // Lighting (Section 6 tone, upgraded to cinematic):
-    //  - one strong "sun" directional light that CASTS shadows,
-    //  - a soft sky/ground hemisphere fill for believable bounce,
-    //  - a low ambient floor so shadows stay dramatic (not washed out).
-    const sun = new THREE.DirectionalLight(0xfff4e0, 2.15);
-    sun.position.set(28, 46, 18);
+    // Lighting (Section 6 tone, upgraded to CINEMATIC — Task #1):
+    //  - one strong, low-angled "sun" directional light that CASTS crisp,
+    //    long, dramatic shadows (the single biggest realism upgrade),
+    //  - a restrained sky/ground hemisphere fill so shaded sides read as cool
+    //    bounce light instead of flat black,
+    //  - a very low ambient floor so shadow cores stay deep and highlights pop.
+    //  Everything is per-pixel BRDF on shared materials — no textures, no extra
+    //  geometry — so the "photographic" look costs almost nothing (Section 7).
+    const sun = new THREE.DirectionalLight(0xfff2d6, 3.0);
+    // lower elevation + more azimuth => longer, more dramatic cast shadows
+    sun.position.set(34, 40, 22);
     sun.castShadow = this.quality.shadows;
     const sc = sun.shadow;
     sc.mapSize.set(this.quality.shadowMap, this.quality.shadowMap);
     sc.camera.near = 1;
-    sc.camera.far = 140;
-    const S = 34;                       // ortho half-extent (frustum size)
+    sc.camera.far = 150;
+    const S = 30;                       // tighter ortho half-extent => sharper shadows on the action
     sc.camera.left = -S; sc.camera.right = S;
     sc.camera.top = S; sc.camera.bottom = -S;
-    sc.bias = -0.0006;
-    sc.normalBias = 0.5;                // hides shadow acne on box faces
+    sc.bias = -0.0004;
+    sc.normalBias = 0.6;                // hides shadow acne on box faces
+    sc.radius = 3.2;                    // PCF soft-shadow penumbra (soft, believable edges)
     this.scene.add(sun);
     this.scene.add(sun.target);
     this.sun = sun;
 
-    this.hemi = new THREE.HemisphereLight(0xdfefff, 0x4a4638, 0.55);
+    // Cool sky / warm ground hemisphere fill — subtle bounce, kept low so the
+    // sun stays the dominant, shadow-defining key light.
+    this.hemi = new THREE.HemisphereLight(0xcfe6ff, 0x3a3324, 0.42);
     this.scene.add(this.hemi);
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.28);
+    // Minimal ambient floor: just enough that pure-shadow faces aren't crushed.
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.16);
     this.scene.add(this.ambient);
+
+    // Gradient SKY DOME (Task #1: photographic sky). A single large back-side
+    // sphere whose vertices carry a top→horizon colour gradient, drawn with a
+    // depth-write-off MeshBasicMaterial. One draw call, no per-frame cost, no
+    // texture — replaces the flat solid-colour background with an atmospheric
+    // graduated sky. Recoloured per biome in _applyBiomeLighting().
+    this.sky = this._makeSkyDome();
+    this.scene.add(this.sky);
 
     this.charPool = new CharacterPool(this.scene, CFG.MAX_PLAYERS + 4, this.quality);
 
@@ -132,7 +149,7 @@ export class Game {
     if (!this.sun || !target) return;
     const tx = target.x, ty = target.y, tz = target.z;
     this.sun.target.position.set(tx, ty, tz);
-    this.sun.position.set(tx + 28, ty + 46, tz + 18);
+    this.sun.position.set(tx + 34, ty + 40, tz + 22);
     this.sun.target.updateMatrixWorld();
   }
 

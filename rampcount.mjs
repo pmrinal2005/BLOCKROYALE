@@ -1,0 +1,10 @@
+import { chromium } from 'playwright';
+const b = await chromium.launch({ args:['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist'] });
+const p = await b.newPage({ viewport:{width:1024,height:640} });
+await p.goto('http://localhost:3000',{waitUntil:'domcontentloaded'});
+await p.waitForSelector('.menu-logo',{timeout:15000});
+await p.click('#m-play');
+await p.waitForFunction(()=>window.__game?.state==='playing',{timeout:12000}).catch(()=>{});
+const s = await p.evaluate(()=>({ramps:window.__game.world.ramps.length, platforms:window.__game.world.platforms.length, obstacles:window.__game.world.obstacles.length, calls:window.__game.renderer.info.render.calls, tris:window.__game.renderer.info.render.triangles}));
+console.log(JSON.stringify(s));
+await b.close();

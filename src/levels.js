@@ -120,7 +120,24 @@ function buildRace(world, cfg) {
 
     const segLen = rand(14, 22);
     const midZ = z + segLen / 2;
-    world.addSurface(0, surf, midZ, laneW, segLen, seg % 2 ? b.ground : b.ground2, { ice });
+    const segColor = seg % 2 ? b.ground : b.ground2;
+
+    // Choose obstacle theme up-front: themes that need a dead-flat floor
+    // (blink tiles you must stand on, sliding platforms, rolling dice lanes)
+    // get a flat slab; everything else gets a gently ROLLING organic surface
+    // (Task #3: natural sloped elevation, seamless, zero stairs).
+    const themes = ['hammers', 'rotor', 'dice', 'blink', 'movers', 'pusher', 'vines', 'clear', 'clear'];
+    const kind = themes[(Math.random() * themes.length) | 0];
+    const needsFlat = ice || kind === 'blink' || kind === 'movers' || kind === 'dice';
+
+    if (needsFlat) {
+      world.addSurface(0, surf, midZ, laneW, segLen, segColor, { ice });
+    } else {
+      // low-amplitude rolling ground: rises/dips ~0.4-1.0 units across the run
+      const amp = rand(0.4, 1.0);
+      world.addRollingStretch(0, z, z + segLen, surf, laneW, segColor,
+        amp, rand(0.9, 1.7), rand(0, Math.PI * 2));
+    }
 
     // low side railings on elevated plateaus so it reads as a mountain path
     // and softly keeps players from sliding off the edge.
@@ -142,9 +159,8 @@ function buildRace(world, cfg) {
     }
 
     // --- obstacle theme for this segment (top = walkable surface). ---
+    // `kind` was chosen above to decide flat-vs-rolling floor.
     const top = surf;
-    const themes = ['hammers', 'rotor', 'dice', 'blink', 'movers', 'pusher', 'vines', 'clear', 'clear'];
-    const kind = themes[(Math.random() * themes.length) | 0];
     if (kind === 'hammers') {
       const n = 2 + (Math.random() * 3 | 0);
       for (let i = 0; i < n; i++)

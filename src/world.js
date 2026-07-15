@@ -88,6 +88,15 @@ export class World {
     arr.push(geo);
   }
 
+  // Collect an ALREADY-transformed arbitrary geometry (cone, cylinder…) into a
+  // per-color batch bucket. Lets organic shapes (smooth mountains, Task #3)
+  // merge into the same near-zero-cost draw call as the box decor.
+  _batchGeo(map, geo, color) {
+    let arr = map.get(color);
+    if (!arr) { arr = []; map.set(color, arr); }
+    arr.push(geo);
+  }
+
   // Add a solid platform. The COLLISION AABB is registered immediately;
   // the VISUAL is batched into the merged terrain mesh at finalize().
   // opts.dynamic (moving/blink platforms) => keep as its own live mesh.
@@ -129,17 +138,25 @@ export class World {
     this.addDecor(x, groundY + h + ls * 0.9, z, ls * 0.6, ls * 0.6, ls * 0.6, leaf, Math.random());
   }
 
-  // A chunky voxel "mountain" (stepped pyramid of boxes) placed to the
-  // side of the track for a mountainous skyline. Decoration only. (Bug #4)
+  // A SMOOTH sloped "mountain" (Task #3: natural elevation, ZERO steps/stairs).
+  // Built from a single low-poly cone (6–8 radial segments) — organic sloped
+  // sides instead of the old stacked-box staircase — plus a small snow-cap
+  // cone. Both are batched into the merged decor mesh, so a whole mountain
+  // range still costs only a couple of draw calls. Decoration only.
   addMountain(x, groundY, z, base = 8, height = 12, color = 0x8d6e63, snow = 0xffffff) {
-    const steps = 4;
-    for (let i = 0; i < steps; i++) {
-      const f = 1 - i / steps;
-      const s = base * f;
-      const hy = groundY + (height / steps) * i + (height / steps) / 2;
-      const c = i === steps - 1 ? snow : color;
-      this.addDecor(x, hy, z, s, height / steps + 0.4, s, c, Math.random() * 0.4);
-    }
+    const seg = 6 + (Math.random() * 3 | 0);   // 6–8 sides: still reads round, stays cheap
+    const r = base * 0.62;
+    // main body cone
+    const body = new THREE.ConeGeometry(r, height, seg, 1);
+    body.rotateY(Math.random() * Math.PI);
+    body.translate(x, groundY + height / 2, z);
+    this._batchGeo(this._decorBatch, body, color);
+    // snow cap: a smaller cone sitting on the upper third
+    const capH = height * 0.34;
+    const cap = new THREE.ConeGeometry(r * 0.4, capH, seg, 1);
+    cap.rotateY(Math.random() * Math.PI);
+    cap.translate(x, groundY + height - capH / 2, z);
+    this._batchGeo(this._decorBatch, cap, snow);
   }
 
   // A tall roadside STRUCTURE (arch / ruin / tower) — richer scenery than
@@ -216,6 +233,34 @@ export class World {
       this._batch(this._decorBatch, x, skirtH / 2, (zLow + zHigh) / 2, w * 0.98, skirtH, run, color);
     }
     return this.ramps[this.ramps.length - 1];
+  }
+
+  // A gently ROLLING ground stretch (Task #3: organic, seamless, zero stairs).
+  // Lays a smooth sinusoidal height profile over [zFrom, zTo] as a chain of
+  // short analytic ramps — because each ramp is a true sloped plane and each
+  // shares its end height with the next, the surface is C0-continuous with NO
+  // steps anywhere. Returns the surface height at zTo so the caller can keep
+  // laying seamlessly. amp = how many units the ground rises/falls.
+  addRollingStretch(x, zFrom, zTo, baseTop, w, color, amp = 0.9, waves = 1.4, phase = 0) {
+    const total = zTo - zFrom;
+    if (total <= 0) return baseTop;
+    const N = Math.max(3, Math.round(total / 4.2));   // ~4-unit ramp pieces => smooth yet fewer AABBs
+    // Height profile. A sin(π·t) window forces the profile to baseTop at BOTH
+    // ends (t=0 and t=1) so this stretch connects SEAMLESSLY to the flat
+    // segments before/after it — no seam, no step. The inner sine gives the
+    // organic roll; an integer number of full waves would also close, but the
+    // window guarantees it regardless of `waves`.
+    const win = (t) => Math.sin(t * Math.PI);
+    const h = (t) => baseTop + amp * win(t) * Math.sin(phase + t * waves * Math.PI * 2);
+    let zPrev = zFrom, yPrev = h(0);   // == baseTop
+    for (let i = 1; i <= N; i++) {
+      const t = i / N;
+      const zCur = zFrom + total * t;
+      const yCur = h(t);
+      this.addRamp(x, zPrev, zCur, yPrev, yCur, w, color);
+      zPrev = zCur; yPrev = yCur;
+    }
+    return yPrev;   // == baseTop (window is 0 at t=1)
   }
 
   // Sample the ramp surface height at (x,z) if the point is over a ramp.
