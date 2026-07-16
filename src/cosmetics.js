@@ -30,13 +30,69 @@ export const HATS = [
   { id: 'antenna', name: 'Antenna',   price: 140, color: 0xff5ea2, shape: [0.14, 0.7, 0.14], y: 0.85 },
 ];
 
-// Trail effects on jump/dive (Section 5). color null = off.
+// Movement trails (Section 5). Each trail is a fully-instanced particle
+// effect (see TrailSystem in trails.js) — NO new geometry per player, so
+// they stay free to render across a 32-player lobby (Section 7).
+//
+// Every trail carries a distinct visual RECIPE so they look and move
+// uniquely (Task #4):
+//   color/color2  : primary + secondary hues (lerped over particle life)
+//   emitPerSec    : particles/sec while running (scaled by speed)
+//   burst         : extra particles injected on a jump/dive (flashy pop)
+//   size          : base particle size (units)
+//   life          : particle lifetime (s)
+//   gravity       : vertical accel (units/s^2) — >0 rises, <0 falls
+//   drag          : horizontal velocity damping per sec
+//   spin          : self-rotation speed (rad/s) for sparkle/shard sheen
+//   spread        : sideways scatter of the emit velocity
+//   shape         : 'cube' | 'spark' | 'ember' | 'shard' | 'ribbon'
+//   rainbow       : cycle hue over life instead of color->color2 lerp
+//   glow          : additive blending (bright, self-lit look)
+// color === null => trail OFF (the "None" option).
 export const TRAILS = [
-  { id: 'none',   name: 'None',    price: 0,   color: null },
-  { id: 'spark',  name: 'Sparkle', price: 100, color: 0xffd23f },
-  { id: 'fire',   name: 'Fire',    price: 200, color: 0xff5722 },
-  { id: 'ice',    name: 'Frost',   price: 200, color: 0x81d4fa },
-  { id: 'rainbow',name: 'Rainbow', price: 450, color: 0xff5ea2 },
+  { id: 'none',    name: 'None',      price: 0,   color: null },
+  {
+    id: 'spark',   name: 'Sparkle',   price: 100,
+    color: 0xffe27a, color2: 0xffb300, shape: 'spark', glow: true,
+    emitPerSec: 34, burst: 12, size: 0.15, life: 0.55,
+    gravity: 7, drag: 2.2, spin: 9, spread: 1.1,
+  },
+  {
+    id: 'fire',    name: 'Fire',      price: 200,
+    color: 0xfff3a0, color2: 0xd81b1b, shape: 'ember', glow: true,
+    emitPerSec: 42, burst: 16, size: 0.24, life: 0.6,
+    gravity: 5.5, drag: 1.4, spin: 3, spread: 0.7,
+  },
+  {
+    id: 'ice',     name: 'Frost',     price: 200,
+    color: 0xffffff, color2: 0x4fc3f7, shape: 'shard', glow: true,
+    emitPerSec: 30, burst: 14, size: 0.2, life: 0.85,
+    gravity: -6, drag: 2.8, spin: 7, spread: 0.9,
+  },
+  {
+    id: 'rainbow', name: 'Rainbow',   price: 450,
+    color: 0xff5ea2, shape: 'ribbon', glow: true, rainbow: true,
+    emitPerSec: 52, burst: 20, size: 0.22, life: 0.7,
+    gravity: 2.5, drag: 1.0, spin: 2, spread: 0.5,
+  },
+  {
+    id: 'bubble',  name: 'Bubbles',   price: 260,
+    color: 0xbdefff, color2: 0x9fe0ff, shape: 'cube', glow: false,
+    emitPerSec: 22, burst: 10, size: 0.26, life: 1.0,
+    gravity: 9, drag: 3.0, spin: 1.5, spread: 1.3,
+  },
+  {
+    id: 'shadow',  name: 'Void',      price: 360,
+    color: 0x9b6bff, color2: 0x2b1152, shape: 'ember', glow: true,
+    emitPerSec: 38, burst: 16, size: 0.3, life: 0.7,
+    gravity: 3.5, drag: 1.6, spin: 4, spread: 0.6,
+  },
+  {
+    id: 'gold',    name: 'Gold Rush', price: 500,
+    color: 0xfff6c0, color2: 0xffb300, shape: 'spark', glow: true,
+    emitPerSec: 48, burst: 22, size: 0.18, life: 0.65,
+    gravity: 6, drag: 2.0, spin: 11, spread: 1.0,
+  },
 ];
 
 const SAVE_KEY = 'blockroyale_save_v1';

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG, DT } from './config.js';
 import { CharacterPool } from './character.js';
+import { TrailSystem } from './trails.js';
 import { buildLevel } from './levels.js';
 import { BIOMES } from './world.js';
 import { Entity } from './entity.js';
@@ -96,6 +97,9 @@ export class Game {
     this.scene.add(this.sky);
 
     this.charPool = new CharacterPool(this.scene, CFG.MAX_PLAYERS + 4, this.quality);
+    // Movement-trail renderer (Task #4). Shared instanced particle pools —
+    // draws every equipped trail in the lobby for a handful of draw calls.
+    this.trails = new TrailSystem(this.scene, this.quality);
 
     this.entities = [];
     this.human = null;
@@ -227,7 +231,9 @@ export class Game {
     h.x = 0; h.z = 0; h.y = 3;
     this.human = h;
     this.entities.push(h);
+    this._wireSfx(h);            // so the equipped trail also bursts here
     this.previewAngle = 0;
+    if (this.trails) this.trails.clear();
   }
 
   _cosmetics() {
@@ -258,6 +264,7 @@ export class Game {
     if (this.world) this.world.clear();
     this.world = buildLevel(this.scene, cfg);
     this._applyBiomeLighting();
+    if (this.trails) this.trails.clear();   // don't carry particles across rounds
 
     // Determine survivors: round 0 = full lobby, else carry alive players.
     let survivors;
@@ -314,8 +321,10 @@ export class Game {
   }
 
   _wireSfx(e) {
-    e.onJump = () => { if (e === this.human) audio.jump(); };
-    e.onDive = () => { if (e === this.human) audio.dive(); };
+    // Note: also flag a trail burst on take-off so the equipped trail flares
+    // on jump/dive (Task #4) — applies to every entity, human and bot alike.
+    e.onJump = () => { e._trailBurst = true; if (e === this.human) audio.jump(); };
+    e.onDive = () => { e._trailBurst = true; if (e === this.human) audio.dive(); };
     e.onMelee = () => { if (e === this.human) audio.whoosh(); };   // swing whoosh (Task #3)
     e.onStumble = () => {
       if (e === this.human) { audio.stumble(); this.camShake = 0.5; }
@@ -660,6 +669,12 @@ export class Game {
     for (const e of this.entities) e.updatePose(frameDt);
     this._renderAvatars();
     this.charPool.updatePoof(frameDt);
+    // Movement trails (Task #4): emit from every visible avatar this frame,
+    // then advance + draw the shared particle pools.
+    for (const e of this.entities) {
+      if (e.alive || e.finished) this.trails.emit(e, frameDt);
+    }
+    this.trails.update(frameDt);
     this._updateCamera(frameDt);
     this._updateSun(this._followTarget || this.human);
 
@@ -670,6 +685,25 @@ export class Game {
     if (this.state === 'preview') {
       // gentle idle jiggle already via pose; slowly orbit camera
       this.previewAngle += dt * 0.25;
+      // Give the preview character a small looping run so the EQUIPPED TRAIL
+      // is clearly showcased in the menu backdrop (Task #4). It jogs a tight
+      // circle on the platform; we fake velocity so TrailSystem.emit streams.
+      const h = this.human;
+      if (h) {
+        this._previewT = (this._previewT || 0) + dt;
+        const a = this._previewT * 1.4;
+        const r = 1.6;
+        const nx = Math.cos(a) * r, nz = Math.sin(a) * r;
+        h.vx = (nx - h.x) / Math.max(dt, 1e-3);
+        h.vz = (nz - h.z) / Math.max(dt, 1e-3);
+        h.x = nx; h.z = nz; h.y = 2.6;
+        h.yaw = a + Math.PI / 2;      // face along the circle
+        h.grounded = true;
+        h.groundY = 2.6;
+        // occasional little hop => trail burst pop
+        if (Math.sin(a) > 0.985) h._trailBurst = true;
+        // pose is advanced by the main loop's updatePose pass — don't double it
+      }
     } else if (this.state === 'countdown') {
       this.countdown -= dt;
       const c = Math.ceil(this.countdown);
