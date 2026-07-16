@@ -20,14 +20,83 @@ export const SKINS = [
   { id: 'candy',    name: 'Bubblegum', price: 260, body: 0xff5ea2, limbs: 0xe0367e, head: 0xffe0f0 },
 ];
 
-// Accessories: hat = box on top of head. 'none' => no mesh.
+// Accessories (Task #2): every hat is now a STYLIZED LOW-POLY 3D MODEL built
+// from a handful of primitive pieces (box / cylinder / cone), instead of a
+// single flat placeholder box. To keep the 32-player lobby cheap (Section 7),
+// all hat pieces are drawn from a few shared InstancedMeshes keyed by geometry
+// type (see HatPool in character.js) — so a fully-detailed crown costs the same
+// handful of draw calls whether 1 or 32 players wear one.
+//
+// A hat = { id, name, price, color (legacy/swatch tint), parts: [ piece, ... ] }.
+// Each piece is authored in the head-local frame (origin at the TOP of the head
+// cube, +Y up, +Z forward = the avatar's facing) so it tumbles/flips correctly:
+//   geo   : 'box' | 'cyl' | 'cone'
+//   size  : box -> [sx,sy,sz]; cyl/cone -> [radius, height, radialSegs?]
+//   pos   : [x,y,z] local offset of the piece centre
+//   rot   : [rx,ry,rz] optional local euler (radians)
+//   color : hex tint for that piece
+// `color:null` on the hat itself => the "None" option (no mesh at all).
 export const HATS = [
-  { id: 'none',    name: 'None',      price: 0,   color: null },
-  { id: 'cap',     name: 'Cap',       price: 80,  color: 0xef4444, shape: [0.55, 0.28, 0.55], y: 0.62 },
-  { id: 'top',     name: 'Top Hat',   price: 160, color: 0x1a2140, shape: [0.5, 0.55, 0.5],  y: 0.75 },
-  { id: 'crown',   name: 'Crown',     price: 350, color: 0xffd23f, shape: [0.62, 0.3, 0.62],  y: 0.62 },
-  { id: 'horn',    name: 'Party Cone',price: 120, color: 0x22d3ee, shape: [0.42, 0.6, 0.42], y: 0.78 },
-  { id: 'antenna', name: 'Antenna',   price: 140, color: 0xff5ea2, shape: [0.14, 0.7, 0.14], y: 0.85 },
+  { id: 'none', name: 'None', price: 0, color: null, parts: [] },
+
+  // Baseball Cap: rounded dome crown (short wide cylinder) + a flat forward brim.
+  {
+    id: 'cap', name: 'Baseball Cap', price: 80, color: 0xef4444,
+    parts: [
+      { geo: 'cyl', size: [0.42, 0.30, 10], pos: [0, 0.15, 0],           color: 0xef4444 },
+      { geo: 'box', size: [0.5, 0.06, 0.10], pos: [0, 0.05, 0.04],       color: 0xd12f2f }, // headband
+      { geo: 'box', size: [0.46, 0.05, 0.40], pos: [0, 0.06, 0.42],      color: 0xc62828 }, // brim
+      { geo: 'box', size: [0.10, 0.10, 0.10], pos: [0, 0.32, 0],         color: 0xfff3e0 }, // button
+    ],
+  },
+
+  // Top Hat: tall cylindrical crown + wide flat brim + a satin band.
+  {
+    id: 'top', name: 'Top Hat', price: 160, color: 0x1a2140,
+    parts: [
+      { geo: 'box', size: [0.62, 0.05, 0.62], pos: [0, 0.02, 0],         color: 0x11162e }, // brim
+      { geo: 'cyl', size: [0.30, 0.62, 12], pos: [0, 0.35, 0],           color: 0x1a2140 }, // crown
+      { geo: 'cyl', size: [0.315, 0.10, 12], pos: [0, 0.14, 0],          color: 0xc0392b }, // red band
+      { geo: 'cyl', size: [0.32, 0.05, 12], pos: [0, 0.66, 0],           color: 0x232a52 }, // top rim
+    ],
+  },
+
+  // Crown: a golden band ring + five triangular spikes + jewel accents.
+  {
+    id: 'crown', name: 'Crown', price: 350, color: 0xffd23f,
+    parts: [
+      { geo: 'cyl', size: [0.34, 0.22, 12], pos: [0, 0.11, 0],           color: 0xffd23f }, // band
+      // five points around the band
+      { geo: 'cone', size: [0.10, 0.34, 4], pos: [0, 0.34, 0.30],        color: 0xffe066 },
+      { geo: 'cone', size: [0.10, 0.30, 4], pos: [0.28, 0.32, 0.10],     color: 0xffe066 },
+      { geo: 'cone', size: [0.10, 0.30, 4], pos: [-0.28, 0.32, 0.10],    color: 0xffe066 },
+      { geo: 'cone', size: [0.10, 0.30, 4], pos: [0.20, 0.32, -0.24],    color: 0xffe066 },
+      { geo: 'cone', size: [0.10, 0.30, 4], pos: [-0.20, 0.32, -0.24],   color: 0xffe066 },
+      { geo: 'box',  size: [0.09, 0.09, 0.09], pos: [0, 0.13, 0.34],     color: 0xe53935, rot: [0, 0, 0.78] }, // ruby
+      { geo: 'box',  size: [0.08, 0.08, 0.08], pos: [0.24, 0.13, -0.18], color: 0x1e88e5, rot: [0, 0, 0.78] }, // sapphire
+      { geo: 'box',  size: [0.08, 0.08, 0.08], pos: [-0.24, 0.13, -0.18],color: 0x1e88e5, rot: [0, 0, 0.78] },
+    ],
+  },
+
+  // Party Cone: a tall cone in bright candy colours + a pom-pom on top.
+  {
+    id: 'horn', name: 'Party Cone', price: 120, color: 0x22d3ee,
+    parts: [
+      { geo: 'cone', size: [0.34, 0.78, 12], pos: [0, 0.40, 0],          color: 0x22d3ee },
+      { geo: 'cyl',  size: [0.20, 0.05, 12], pos: [0, 0.44, 0],          color: 0xff5ea2, rot: [0, 0, 0] }, // stripe
+      { geo: 'box',  size: [0.18, 0.18, 0.18], pos: [0, 0.82, 0],        color: 0xffe066 }, // pom-pom
+    ],
+  },
+
+  // Antenna: a slim stalk + a glowing bobble ball on top (bug/robot vibe).
+  {
+    id: 'antenna', name: 'Antenna', price: 140, color: 0xff5ea2,
+    parts: [
+      { geo: 'cyl', size: [0.045, 0.62, 6], pos: [0, 0.32, 0],           color: 0x37474f }, // stalk
+      { geo: 'box', size: [0.16, 0.16, 0.16], pos: [0, 0.68, 0],         color: 0xff5ea2, rot: [0.6, 0.6, 0] }, // bobble
+      { geo: 'cyl', size: [0.12, 0.06, 8], pos: [0, 0.03, 0],            color: 0x263238 }, // base clip
+    ],
+  },
 ];
 
 // Movement trails (Section 5). Each trail is a fully-instanced particle
@@ -148,3 +217,100 @@ export function grantRewards(save, { coins = 0, xp = 0 }) {
 export function getSkin(id) { return SKINS.find(s => s.id === id) || SKINS[0]; }
 export function getHat(id)  { return HATS.find(h => h.id === id)  || HATS[0]; }
 export function getTrail(id){ return TRAILS.find(t => t.id === id)|| TRAILS[0]; }
+
+// ------------------------------------------------------------
+// Hat locker previews (Task #2): render a crisp, stylized 2D SVG icon for
+// each hat that mirrors its 3D model, so the Locker cards show a real visual
+// of the hat instead of a flat colour square. SVG is inline + resolution-
+// independent + zero extra assets (Section 7: stays lightweight). Each icon
+// is hand-drawn to match the corresponding 3D piece silhouette.
+// ------------------------------------------------------------
+function hex(c) { return '#' + (c & 0xffffff).toString(16).padStart(6, '0'); }
+
+export function hatPreviewSVG(hat) {
+  const id = hat && hat.id;
+  // shared frame: 64x64 viewBox, hat sits centred with a soft floor shadow.
+  const open = `<svg viewBox="0 0 64 64" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" style="display:block">`;
+  const shadow = `<ellipse cx="32" cy="55" rx="17" ry="4" fill="rgba(10,15,31,.20)"/>`;
+  const close = `</svg>`;
+
+  if (id === 'none' || !hat || hat.color == null) {
+    // clear "no hat" glyph: a dashed ring with a slash
+    return open +
+      `<circle cx="32" cy="32" r="16" fill="none" stroke="#b7c0dd" stroke-width="3" stroke-dasharray="4 4"/>` +
+      `<line x1="22" y1="42" x2="42" y2="22" stroke="#b7c0dd" stroke-width="3" stroke-linecap="round"/>` +
+      close;
+  }
+
+  if (id === 'cap') {
+    return open + shadow +
+      // dome crown
+      `<path d="M16 40 A16 13 0 0 1 48 40 Z" fill="${hex(0xef4444)}"/>` +
+      `<path d="M16 40 A16 13 0 0 1 48 40" fill="none" stroke="${hex(0xc62828)}" stroke-width="2"/>` +
+      // brim
+      `<path d="M30 40 q18 2 20 8 q-14 3 -22 -1 Z" fill="${hex(0xc62828)}"/>` +
+      // headband + button
+      `<rect x="16" y="38" width="32" height="4" fill="${hex(0xd12f2f)}"/>` +
+      `<circle cx="32" cy="20" r="3" fill="#fff3e0"/>` +
+      close;
+  }
+
+  if (id === 'top') {
+    return open + shadow +
+      // brim
+      `<ellipse cx="32" cy="46" rx="20" ry="5" fill="${hex(0x11162e)}"/>` +
+      // crown
+      `<rect x="21" y="12" width="22" height="34" rx="2" fill="${hex(0x1a2140)}"/>` +
+      `<ellipse cx="32" cy="12" rx="11" ry="3" fill="${hex(0x232a52)}"/>` +
+      // red band
+      `<rect x="21" y="38" width="22" height="5" fill="${hex(0xc0392b)}"/>` +
+      close;
+  }
+
+  if (id === 'crown') {
+    return open + shadow +
+      // band
+      `<rect x="17" y="38" width="30" height="12" rx="2" fill="${hex(0xffd23f)}"/>` +
+      // five points
+      `<path d="M17 40 L22 22 L27 40 Z" fill="${hex(0xffe066)}"/>` +
+      `<path d="M25 40 L32 18 L39 40 Z" fill="${hex(0xffe066)}"/>` +
+      `<path d="M37 40 L42 22 L47 40 Z" fill="${hex(0xffe066)}"/>` +
+      // jewels
+      `<circle cx="24" cy="44" r="2.4" fill="${hex(0x1e88e5)}"/>` +
+      `<circle cx="32" cy="44" r="2.8" fill="${hex(0xe53935)}"/>` +
+      `<circle cx="40" cy="44" r="2.4" fill="${hex(0x1e88e5)}"/>` +
+      // point tips
+      `<circle cx="22" cy="22" r="2" fill="#fff"/>` +
+      `<circle cx="32" cy="18" r="2.2" fill="#fff"/>` +
+      `<circle cx="42" cy="22" r="2" fill="#fff"/>` +
+      close;
+  }
+
+  if (id === 'horn') {
+    return open + shadow +
+      // cone
+      `<path d="M32 12 L46 48 L18 48 Z" fill="${hex(0x22d3ee)}"/>` +
+      // stripe
+      `<path d="M25 34 L39 34 L41 40 L23 40 Z" fill="${hex(0xff5ea2)}"/>` +
+      // pom-pom
+      `<circle cx="32" cy="12" r="4" fill="${hex(0xffe066)}"/>` +
+      close;
+  }
+
+  if (id === 'antenna') {
+    return open + shadow +
+      // base clip
+      `<ellipse cx="32" cy="46" rx="10" ry="4" fill="${hex(0x263238)}"/>` +
+      // stalk
+      `<rect x="30.5" y="20" width="3" height="26" rx="1.5" fill="${hex(0x37474f)}"/>` +
+      // bobble
+      `<circle cx="32" cy="17" r="6" fill="${hex(0xff5ea2)}"/>` +
+      `<circle cx="30" cy="15" r="2" fill="#fff" opacity=".7"/>` +
+      close;
+  }
+
+  // fallback: a simple tinted cap silhouette
+  return open + shadow +
+    `<path d="M16 42 A16 14 0 0 1 48 42 Z" fill="${hex(hat.color)}"/>` +
+    close;
+}

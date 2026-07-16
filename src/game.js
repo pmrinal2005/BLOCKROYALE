@@ -725,6 +725,8 @@ export class Game {
   }
 
   _renderAvatars() {
+    // reset the per-frame hat-piece write cursors before packing avatars (Task #2)
+    this.charPool.hatPool.beginFrame();
     let idx = 0;
     for (const e of this.entities) {
       if (!e.alive && !e.finished) { continue; } // hidden (poofed)

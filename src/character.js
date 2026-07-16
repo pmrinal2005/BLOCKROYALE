@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { getSkin, getHat } from './cosmetics.js';
+import { getSkin, getHat, HATS } from './cosmetics.js';
 
 // ============================================================
 // Voxel character rig (Section 2).
@@ -14,7 +14,9 @@ import { getSkin, getHat } from './cosmetics.js';
 // the instance buffer. All matrix math is plain, no skinning.
 // ============================================================
 
-const PARTS = ['head', 'torso', 'armL', 'armR', 'legL', 'legR', 'hat'];
+// Body parts (Task #2: 'hat' removed here — hats are now multi-piece 3D
+// models rendered by the dedicated HatPool below, not a single body box).
+const PARTS = ['head', 'torso', 'armL', 'armR', 'legL', 'legR'];
 
 // Base local dimensions of each part (relative to player origin at feet).
 const DIMS = {
@@ -24,8 +26,11 @@ const DIMS = {
   armR:  { size: [0.26, 0.8, 0.26], pivot: [ 0.58, 1.28, 0] },
   legL:  { size: [0.3, 0.85, 0.3],  pivot: [-0.22, 0.42, 0] },
   legR:  { size: [0.3, 0.85, 0.3],  pivot: [ 0.22, 0.42, 0] },
-  hat:   { size: [0.6, 0.3, 0.6],   pivot: [0, 2.0, 0] },
 };
+
+// Y (in avatar-local units, feet=0) of the TOP of the head cube — the pivot
+// origin every hat piece is authored relative to (see HATS[].parts).
+const HEAD_TOP_Y = DIMS.head.pivot[1] + DIMS.head.size[1] / 2;  // 1.55 + 0.45 = 2.0
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -106,6 +111,13 @@ export class CharacterPool {
     this.poof.frustumCulled = false;
     scene.add(this.poof);
     this.poofParts = []; // {pos, vel, life, color}
+
+    // ---- 3D hat pool (Task #2) ----
+    // Multi-piece stylized hats, still fully instanced. We share ONE
+    // InstancedMesh per primitive geometry type (box / cylinder / cone). The
+    // worst-case piece count is (capacity players) × (max pieces in any hat),
+    // so a full 32-player lobby of crowns is still just ~3 draw calls.
+    this.hatPool = new HatPool(scene, capacity, this.realShadows);
   }
 
   // Compute a limb's world matrix given player transform + local rotation.
@@ -171,32 +183,9 @@ export class CharacterPool {
     this._setLimb('legL', idx, x, y, z, yaw, pose.legL, stumbleRoll, skin.limbs, pose);
     this._setLimb('legR', idx, x, y, z, yaw, pose.legR, stumbleRoll, skin.limbs, pose);
 
-    // hat (accessory cube) — hide if none by scaling to 0
-    if (hat.color != null) {
-      const d = DIMS.hat;
-      const [sx, sy, sz] = hat.shape || d.size;
-      const hy = hat.y != null ? 1.55 + hat.y : d.pivot[1];
-      const flip = pose.flip || 0;
-      // stumble roll base rotation
-      _euler.set(stumbleRoll, 0, 0);
-      _q.setFromEuler(_euler);
-      // flip about the body pivot so the hat tumbles WITH the head (Task #2)
-      let lx = 0, ly = hy + (pose.bob || 0), lz = 0;
-      applyFlip(lx, ly, lz, flip, _q);
-      lx = _pos.x; ly = _pos.y; lz = _pos.z;
-      _euler.set(0, yaw, 0);
-      _q2.setFromEuler(_euler);
-      _q2.multiply(_q);
-      const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
-      const wx = lx * cosY + lz * sinY;
-      const wz = -lx * sinY + lz * cosY;
-      _scl.set(sx, sy, sz);
-      _m.compose(_pos.set(x + wx, y + ly, z + wz), _q2, _scl);
-      this.meshes.hat.setMatrixAt(idx, _m);
-      _color.setHex(hat.color); this.meshes.hat.setColorAt(idx, _color);
-    } else {
-      this.meshes.hat.setMatrixAt(idx, _hidden);
-    }
+    // 3D hat (Task #2): a stylized multi-piece model, placed by the HatPool so
+    // it tumbles with the head (stumble roll + dive flip) and follows yaw.
+    this.hatPool.writeHat(idx, hat, x, y, z, yaw, stumbleRoll, pose);
 
     // blob shadow — projects onto groundY, scales with height above ground
     const gap = Math.max(0, y - (av.groundY ?? y));
@@ -283,7 +272,136 @@ export class CharacterPool {
     }
     this.shadow.count = count;
     this.shadow.instanceMatrix.needsUpdate = true;
+    // finalize the hat piece buffers for this frame (Task #2)
+    this.hatPool.flush();
   }
+}
+
+// ------------------------------------------------------------
+// HatPool (Task #2): renders the multi-piece 3D hats.
+// One shared InstancedMesh per primitive geometry type (box / cyl / cone),
+// so an entire 32-player lobby of detailed hats is a handful of draw calls.
+// Each frame we walk every visible avatar's equipped hat, transform each
+// piece from head-local space into world space (following bob, stumble roll,
+// dive flip and yaw exactly like the body parts), and append it to the right
+// geometry bucket. A per-frame write cursor packs only the pieces actually in
+// use; the tail is collapsed to zero-scale (hidden).
+// ------------------------------------------------------------
+class HatPool {
+  constructor(scene, capacity, realShadows) {
+    // worst-case: every player wears the hat with the most pieces.
+    let maxPieces = 1;
+    for (const h of HATS) if (h.parts) maxPieces = Math.max(maxPieces, h.parts.length);
+    const cap = capacity * maxPieces + 8;
+
+    const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.12 });
+    const mk = (geo) => {
+      const m = new THREE.InstancedMesh(geo, mat.clone(), cap);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+      m.frustumCulled = false;
+      m.castShadow = realShadows;
+      m.receiveShadow = false;
+      scene.add(m);
+      return m;
+    };
+
+    // Unit primitives (all authored around their own centre, scaled per piece).
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    // unit-radius (0.5), unit-height cylinder/cone; low radial segs = cheap.
+    const cyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 12);
+    const cone = new THREE.ConeGeometry(0.5, 1, 12);
+
+    this.buckets = {
+      box:  { mesh: mk(box),  cursor: 0 },
+      cyl:  { mesh: mk(cyl),  cursor: 0 },
+      cone: { mesh: mk(cone), cursor: 0 },
+    };
+    this._cap = cap;
+  }
+
+  // Reset write cursors at the start of an avatar-write pass.
+  beginFrame() {
+    for (const k in this.buckets) this.buckets[k].cursor = 0;
+  }
+
+  // Place one avatar's hat pieces. Mirrors the body-part transform pipeline:
+  //   local piece offset -> (+bob) -> dive flip about FLIP_PIVOT_Y ->
+  //   stumble roll -> yaw -> world translate.
+  writeHat(idx, hat, x, y, z, yaw, stumbleRoll, pose) {
+    if (!hat || hat.color == null || !hat.parts || !hat.parts.length) return;
+    const flip = pose.flip || 0;
+    const bob = pose.bob || 0;
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+
+    for (const piece of hat.parts) {
+      const bucket = this.buckets[piece.geo] || this.buckets.box;
+      if (bucket.cursor >= this._cap) continue;
+      const i = bucket.cursor++;
+
+      const [px, py, pz] = piece.pos;
+      const [gx, gy, gz] = normalizeSize(piece);
+
+      // piece local rotation (authored), then stumble roll folded in
+      _euler.set(
+        (piece.rot ? piece.rot[0] : 0) + stumbleRoll,
+        (piece.rot ? piece.rot[1] : 0),
+        (piece.rot ? piece.rot[2] : 0) + stumbleRoll * 0.6,
+        'XYZ');
+      _q.setFromEuler(_euler);
+
+      // piece centre in avatar-local space: head-top origin + authored offset + bob
+      let lx = px;
+      let ly = HEAD_TOP_Y + py + bob;
+      let lz = pz;
+
+      // dive front-flip about the body pivot (so the hat tumbles with the head)
+      applyFlip(lx, ly, lz, flip, _q);
+      lx = _pos.x; ly = _pos.y; lz = _pos.z;
+
+      // fold in yaw
+      _euler.set(0, yaw, 0);
+      _q2.setFromEuler(_euler);
+      _q2.multiply(_q);
+
+      const wx = lx * cosY + lz * sinY;
+      const wz = -lx * sinY + lz * cosY;
+
+      _scl.set(gx, gy, gz);
+      _m.compose(_pos.set(x + wx, y + ly, z + wz), _q2, _scl);
+      bucket.mesh.setMatrixAt(i, _m);
+      _color.setHex(piece.color != null ? piece.color : (hat.color || 0xffffff));
+      bucket.mesh.setColorAt(i, _color);
+    }
+  }
+
+  // Hide a single avatar's slot — no-op here because hats are packed by a
+  // per-frame cursor (unused pieces are collapsed in flush()).
+  hide() { /* handled by cursor packing + flush() */ }
+
+  // Collapse unused instances and push the buffers to the GPU.
+  flush() {
+    for (const k in this.buckets) {
+      const b = this.buckets[k];
+      for (let i = b.cursor; i < this._cap; i++) b.mesh.setMatrixAt(i, _hidden);
+      b.mesh.count = this._cap;
+      b.mesh.instanceMatrix.needsUpdate = true;
+      if (b.mesh.instanceColor) b.mesh.instanceColor.needsUpdate = true;
+    }
+  }
+}
+
+// Map a piece's authored `size` to an [x,y,z] scale for its unit geometry.
+//  box  -> [sx, sy, sz]
+//  cyl  -> [diameter, height, diameter]   (unit cyl radius = 0.5)
+//  cone -> [diameter, height, diameter]   (unit cone radius = 0.5)
+function normalizeSize(piece) {
+  const s = piece.size;
+  if (piece.geo === 'cyl' || piece.geo === 'cone') {
+    const d = s[0] * 2;      // radius -> diameter (unit geo radius is 0.5)
+    return [d, s[1], d];
+  }
+  return [s[0], s[1], s[2]];
 }
 
 // ------------------------------------------------------------

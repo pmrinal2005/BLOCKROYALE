@@ -1,4 +1,4 @@
-import { SKINS, HATS, TRAILS, getSkin, xpForLevel } from './cosmetics.js';
+import { SKINS, HATS, TRAILS, getSkin, xpForLevel, hatPreviewSVG } from './cosmetics.js';
 import { audio } from './audio.js';
 
 // ============================================================
