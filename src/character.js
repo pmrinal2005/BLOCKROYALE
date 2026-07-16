@@ -326,6 +326,13 @@ export function solvePose(pose, state, phase, dt) {
   const k = Math.min(1, dt * 14);
   pose.armL = lerp(pose.armL || 0, tArmL, k);
   pose.armR = lerp(pose.armR || 0, tArmR, k);
+  // Melee punch overlay (Task #3): drive the RIGHT arm forward on top of the
+  // locomotion pose so the strike reads clearly in any state. punch is 0..1.
+  if (pose.punch) {
+    // -1.9 rad ≈ arm thrust forward/up (matches jump's forward reach sign)
+    pose.armR = lerp(pose.armR, -1.9, pose.punch);
+    pose.armL = lerp(pose.armL, -0.5, pose.punch * 0.5);
+  }
   pose.legL = lerp(pose.legL || 0, tLegL, k);
   pose.legR = lerp(pose.legR || 0, tLegR, k);
   pose.bob  = lerp(pose.bob  || 0, bob,  k);

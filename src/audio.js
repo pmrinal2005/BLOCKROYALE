@@ -55,6 +55,9 @@ export class AudioBus {
   click()  { this._tone(440, 0.06, 'square', 0.12); }
   fanfare(){ [523,659,784,1046].forEach((f,i)=>this._tone(f,0.35,'triangle',0.2,null,i*0.12)); }
   aww()    { this._tone(400, 0.5, 'sine', 0.14, 250); }
+  whoosh() { this._tone(760, 0.12, 'sine', 0.10, 300); }             // melee swing air whoosh (Task #3)
+  punch()  { this._tone(150, 0.14, 'square', 0.22, 55);              // cartoon THWACK on connect
+             this._tone(90, 0.18, 'sine', 0.16, 40, 0.02); }
 
   startMusic() {
     if (!this.musicOn) return;

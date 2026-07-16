@@ -175,6 +175,69 @@ export function checkObstacleHits(entities, world, dt = 1 / 30) {
   }
 }
 
+// ------------------------------------------------------------
+// Knockback Melee resolution (Task #3).
+// For every entity whose melee active-frame is open this tick, find targets
+// inside a short NARROW forward CONE and apply the physics-only knockback:
+//   - cancel target velocity + active jump/dive state (velocity override),
+//   - impulse away from the attacker (Target - Attacker).normalized * force,
+//   - airborne targets: 1.5x horizontal distance + 0.5s ragdoll/stun,
+//   - brief stumble + 0.3s directional input-lock on the target,
+//   - Super Punch: attacker mid-dash => 1.3x knockback.
+// Damage is always 0 — pure crowd-control utility, per spec.
+// ------------------------------------------------------------
+export function checkMeleeHits(entities, onHit) {
+  const list = entities.filter(e => e.alive && !e.finished);
+  for (const a of list) {
+    if (!a.meleeActive) continue;
+    a.meleeActive = 0;
+    a._meleeFired = true;                 // one hit test per swing
+
+    const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);   // attacker facing (XZ)
+    const range = CFG.MELEE_RANGE + R;
+    let hitAny = false;
+
+    for (const b of list) {
+      if (b === a) continue;
+      const dx = b.x - a.x, dz = b.z - a.z;
+      const dy = Math.abs((b.y + H / 2) - (a.y + H / 2));
+      if (dy > H) continue;                              // different vertical band
+      const dist = Math.hypot(dx, dz);
+      if (dist > range || dist < 1e-4) continue;
+      // narrow cone: normalized offset must point roughly the attacker's way
+      const dot = (dx / dist) * fx + (dz / dist) * fz;
+      if (dot < CFG.MELEE_CONE_DOT) continue;
+
+      // ---- APPLY IMPACT ----
+      // velocity override: kill current momentum + any active jump/dive state
+      b.vx = 0; b.vz = 0;
+      if (b.vy > 0) b.vy = 0;                            // cancel active rising jump
+      b.diveTimer = 0; b.flipping = false; b.flipT = 0; b.pose.flip = 0;
+      b.intent.mx = 0; b.intent.mz = 0; b.intent.jump = false; b.intent.dive = false;
+
+      // knockback vector = away from attacker, normalized
+      const nx = dx / dist, nz = dz / dist;
+      let force = CFG.MELEE_KNOCKBACK;
+      if (a.meleeSuper) force *= CFG.MELEE_SUPER_MULT;   // Super Punch
+      const airborne = !b.grounded;
+      if (airborne) force *= CFG.MELEE_AIRBORNE_MULT;    // airborne fly farther
+
+      b.vx = nx * force;
+      b.vz = nz * force;
+      b.vy = Math.max(b.vy, airborne ? 6.5 : 4.5);       // pop up so they sail back
+
+      // stun / input-lock / stumble
+      b.stumbleTimer = Math.max(b.stumbleTimer, airborne ? CFG.MELEE_AIR_STUN : CFG.STUMBLE_TIME * 0.6);
+      b.inputLock = Math.max(b.inputLock, CFG.MELEE_INPUT_LOCK);
+      b.onStumble && b.onStumble();
+
+      hitAny = true;
+    }
+    a.meleeSuper = false;
+    if (onHit) onHit(a, hitAny);
+  }
+}
+
 // Distance from point P to segment A->B < radius ?  (2D, XZ plane)
 function segPointHit(ax, az, bx, bz, px, pz, radius) {
   const abx = bx - ax, abz = bz - az;

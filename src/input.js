@@ -12,10 +12,16 @@ export class InputManager {
     this.cameraPitch = 0.35;
     this.jumpQueued = false;
     this.diveQueued = false;
+    this.meleeQueued = false;   // Knockback melee (Task #3): F / right-click / PUNCH btn
     this.pointerLocked = false;
     this.touch = { active: false, mx: 0, mz: 0 };
     this.enabled = false;
     this._lastDir = null; this._lastDirTime = 0;
+    // Jump-press buffering (Task #1/#2): remember the last time Space was
+    // pressed so a fast SECOND press reliably resolves to the mid-air dive
+    // even if it lands within the same sim tick as the first (prevents the
+    // "double-tap eaten while grounded" lost input).
+    this._lastJumpTime = -999;
     this._bind();
   }
 
@@ -23,9 +29,18 @@ export class InputManager {
     addEventListener('keydown', (e) => {
       if (!this.enabled) return;
       const k = e.key.toLowerCase();
+      if (e.repeat) return;          // ignore key-auto-repeat for one-shot actions
       this.keys[k] = true;
-      if (k === ' ') { this.jumpQueued = true; e.preventDefault(); }
+      if (k === ' ') {
+        const now = performance.now();
+        // A second Space within 320ms of the first = an explicit dive request,
+        // buffered so the mid-air plunge fires reliably even when mashed. (Task #1)
+        if (now - this._lastJumpTime < 320) this.diveQueued = true;
+        this._lastJumpTime = now;
+        this.jumpQueued = true; e.preventDefault();
+      }
       if (k === 'shift') this.diveQueued = true;
+      if (k === 'f' || k === 'e' || k === 'q') this.meleeQueued = true;   // melee (Task #3)
       // double-tap direction => dive
       const dirMap = { w:'w', a:'a', s:'s', d:'d', arrowup:'w', arrowleft:'a', arrowdown:'s', arrowright:'d' };
       if (dirMap[k]) {
@@ -39,7 +54,13 @@ export class InputManager {
     // mouse look (drag or pointer lock)
     const canvasHost = document.getElementById('game-root');
     let dragging = false, lastX = 0, lastY = 0;
-    canvasHost.addEventListener('mousedown', (e) => { if (this.enabled) { dragging = true; lastX = e.clientX; lastY = e.clientY; } });
+    // right-click = melee punch (Task #3); left drag = camera look
+    canvasHost.addEventListener('contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
+    canvasHost.addEventListener('mousedown', (e) => {
+      if (!this.enabled) return;
+      if (e.button === 2) { this.meleeQueued = true; return; }   // right button
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+    });
     addEventListener('mouseup', () => dragging = false);
     addEventListener('mousemove', (e) => {
       if (!this.enabled) return;
@@ -123,8 +144,15 @@ export class InputManager {
       for (const t of e.changedTouches) if (t.identifier === camId) camId = null;
     });
 
-    document.getElementById('btn-jump').addEventListener('touchstart', (e) => { this.jumpQueued = true; e.preventDefault(); }, { passive: false });
+    document.getElementById('btn-jump').addEventListener('touchstart', (e) => {
+      const now = performance.now();
+      if (now - this._lastJumpTime < 320) this.diveQueued = true;   // rapid re-tap = dive (Task #1)
+      this._lastJumpTime = now;
+      this.jumpQueued = true; e.preventDefault();
+    }, { passive: false });
     document.getElementById('btn-dive').addEventListener('touchstart', (e) => { this.diveQueued = true; e.preventDefault(); }, { passive: false });
+    const punchBtn = document.getElementById('btn-punch');
+    if (punchBtn) punchBtn.addEventListener('touchstart', (e) => { this.meleeQueued = true; e.preventDefault(); }, { passive: false });   // melee (Task #3)
   }
 
   requestPointerLock() {
@@ -151,7 +179,8 @@ export class InputManager {
     const mz = ix * sin + iz * cos;
     const jump = this.jumpQueued; this.jumpQueued = false;
     const dive = this.diveQueued; this.diveQueued = false;
-    return { mx, mz, jump, dive };
+    const melee = this.meleeQueued; this.meleeQueued = false;   // Task #3
+    return { mx, mz, jump, dive, melee };
   }
 }
 

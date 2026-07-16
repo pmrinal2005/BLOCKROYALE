@@ -5,7 +5,7 @@ import { buildLevel } from './levels.js';
 import { BIOMES } from './world.js';
 import { Entity } from './entity.js';
 import { BotBrain, botName } from './bots.js';
-import { resolvePlayerBumps, checkObstacleHits } from './physics.js';
+import { resolvePlayerBumps, checkObstacleHits, checkMeleeHits } from './physics.js';
 import { audio } from './audio.js';
 import * as UI from './ui.js';
 import { SKINS } from './cosmetics.js';
@@ -316,6 +316,7 @@ export class Game {
   _wireSfx(e) {
     e.onJump = () => { if (e === this.human) audio.jump(); };
     e.onDive = () => { if (e === this.human) audio.dive(); };
+    e.onMelee = () => { if (e === this.human) audio.whoosh(); };   // swing whoosh (Task #3)
     e.onStumble = () => {
       if (e === this.human) { audio.stumble(); this.camShake = 0.5; }
     };
@@ -333,6 +334,7 @@ export class Game {
       this.human.intent.mx = it.mx; this.human.intent.mz = it.mz;
       if (it.jump) this.human.intent.jump = true;
       if (it.dive) this.human.intent.dive = true;
+      if (it.melee) this.human.intent.melee = true;   // Task #3
     }
 
     // bot brains
@@ -351,6 +353,14 @@ export class Game {
     // Hit test right after movement, against up-to-date obstacle transforms,
     // so the stumble/knockback is applied instantly on contact. (Bug fix #2)
     checkObstacleHits(this.entities, this.world, DT);
+    // Knockback melee resolution (Task #3) — apply the punch's physics to any
+    // target in the attacker's forward cone this very tick.
+    checkMeleeHits(this.entities, (attacker, hit) => {
+      if (attacker === this.human) {
+        audio.punch();
+        if (hit) { this.camShake = Math.max(this.camShake, 0.35); }
+      }
+    });
 
     // round-specific logic
     if (cfg.type === 'race') this._tickRace();

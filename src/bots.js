@@ -40,6 +40,38 @@ export class BotBrain {
     // second-press dive — the exact same forward plunge the human gets. Skill
     // scales how eager/able they are, so it reads as playful, not robotic.
     this._maybeAirDive();
+
+    // Knockback Melee (Task #3): bots also punch. When a rival is close and
+    // roughly in front, a bot fires the same melee the human does — reusing the
+    // shared intent.melee flag so the sim treats everyone identically.
+    this._maybeMelee(allEntities);
+  }
+
+  _maybeMelee(all) {
+    const e = this.e;
+    if (e.meleeCd > 0 || e.meleeTimer > 0 || e.stumbleTimer > 0) return;
+    // find the nearest rival within melee reach
+    let best = null, bestD = 1e9;
+    for (const o of all) {
+      if (o === e || !o.alive || o.finished) continue;
+      const dx = o.x - e.x, dz = o.z - e.z;
+      const d = Math.hypot(dx, dz);
+      if (d < bestD) { bestD = d; best = o; }
+    }
+    if (!best) return;
+    const reach = CFG.MELEE_RANGE + CFG.PLAYER_RADIUS + 0.3;
+    if (bestD > reach) return;
+    // face the target, then punch with a skill-scaled chance (more aggressive in
+    // king/survival where shoving rivals off is the whole point).
+    const dx = best.x - e.x, dz = best.z - e.z;
+    const fx = Math.sin(e.yaw), fz = Math.cos(e.yaw);
+    const dot = (dx / bestD) * fx + (dz / bestD) * fz;
+    const eager = this.cfg.type === 'king' ? 0.20 : this.cfg.type === 'survival' ? 0.10 : 0.05;
+    if (dot > 0.3 && Math.random() < eager * this.skill) {
+      // steer toward the target this tick so the cone lines up, then swing
+      e.intent.mx = dx / bestD; e.intent.mz = dz / bestD;
+      e.intent.melee = true;
+    }
   }
 
   // Occasionally trigger the airborne dive (the second-jump plunge). Uses the
