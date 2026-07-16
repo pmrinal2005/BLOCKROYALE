@@ -84,7 +84,9 @@ export function showShop(save, handlers) {
 
   function catalog() {
     if (tab === 'skins') return SKINS.map(s => ({ ...s, kind: 'skin', swatch: swatchSkin(s) }));
-    if (tab === 'hats') return HATS.map(h => ({ ...h, kind: 'hat', swatch: swatchColor(h.color) }));
+    // Task #2: hats show a real STYLIZED SVG icon of the 3D model (via
+    // hatPreviewSVG) inside the swatch box, instead of a flat colour square.
+    if (tab === 'hats') return HATS.map(h => ({ ...h, kind: 'hat', swatch: swatchHatBg(h.color), preview: hatPreviewSVG(h) }));
     return TRAILS.map(t => ({ ...t, kind: 'trail', swatch: swatchColor(t.color) }));
   }
   function ownedList() { return save.owned[tab]; }
@@ -97,7 +99,7 @@ export function showShop(save, handlers) {
       const equipped = equippedId() === item.id;
       const card = el(`
         <div class="item-card ${equipped ? 'equipped' : ''} ${owned ? '' : 'locked'}">
-          <div class="item-swatch" style="${item.swatch}"></div>
+          <div class="item-swatch" style="${item.swatch}">${item.preview || ''}</div>
           <div class="item-name">${item.name}</div>
           ${equipped ? '<div class="item-tag tag-equipped">ON</div>'
             : owned ? '<div class="item-tag tag-owned">✓</div>'
@@ -146,6 +148,12 @@ function swatchSkin(s) {
 function swatchColor(c) {
   if (c == null) return 'background:repeating-linear-gradient(45deg,#e5e9f5,#e5e9f5 8px,#d3d9ec 8px,#d3d9ec 16px);display:grid;place-items:center;';
   return `background:radial-gradient(circle at 40% 35%, #fff6, transparent), #${c.toString(16).padStart(6,'0')};`;
+}
+// Task #2: a soft neutral "studio" backdrop for the hat SVG icon so the little
+// 3D-style model reads clearly on the card (the SVG itself carries the colour).
+function swatchHatBg(c) {
+  return 'background:radial-gradient(circle at 50% 38%, #ffffff 0%, #eef2fb 62%, #dde4f4 100%);' +
+    'display:grid;place-items:center;padding:8px;box-sizing:border-box;';
 }
 function flash(node) { node.style.animation = 'none'; node.offsetHeight; node.style.animation = 'toastPop .3s'; }
 

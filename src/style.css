@@ -121,6 +121,8 @@ html, body {
 .item-card.equipped { border-color: var(--green); }
 .item-card.locked { opacity: .96; }
 .item-swatch { width: 100%; aspect-ratio: 1; border-radius: 12px; margin-bottom: 8px; position: relative; overflow: hidden; }
+/* Task #2: the inline hat-preview SVG fills the swatch box (padding set inline). */
+.item-swatch > svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 2px 3px rgba(10,15,31,.18)); }
 .item-name { font-weight: 700; font-size: 14px; }
 .item-price { font-size: 13px; font-weight: 700; color: #c9a11f; display: flex; gap: 4px; align-items: center; justify-content: center; }
 .item-tag { position: absolute; top: 6px; right: 6px; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 20px; color: #fff; }
@@ -229,3 +231,36 @@ html, body {
   .br-btn.big { font-size: 22px; padding: 16px 38px; }
   .hud-pill { font-size: 15px; padding: 6px 12px; }
 }
+
+/* ============ Floating nameplates (Task #4) ============ */
+/* A DOM-overlay label pool sitting above the 3D canvas but below menu/HUD
+   panels. Pointer-events off so plates never intercept input. Each plate is
+   positioned via transform each frame from the projected head position. */
+#nameplate-layer {
+  position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 12;
+}
+.nameplate {
+  position: absolute; top: 0; left: 0; will-change: transform, opacity;
+  font-family: 'Baloo 2', system-ui, sans-serif; font-weight: 800;
+  font-size: 15px; line-height: 1; white-space: nowrap;
+  color: #fff; padding: 3px 9px; border-radius: 11px;
+  background: rgba(26, 33, 64, .62);
+  border: 2px solid rgba(255, 255, 255, .28);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+  box-shadow: 0 3px 8px rgba(10, 15, 31, .28);
+  -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+/* The local player's own plate stands out in the crowd. */
+.nameplate.nameplate-you {
+  color: #06263a;
+  background: linear-gradient(180deg, #7ff0ff, #22d3ee);
+  border-color: #fff;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .5);
+}
+/* little downward tail so it reads as a pin over the head */
+.nameplate::after {
+  content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 5px solid rgba(26, 33, 64, .62);
+}
+.nameplate.nameplate-you::after { border-top-color: #22d3ee; }

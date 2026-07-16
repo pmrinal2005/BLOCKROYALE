@@ -81,6 +81,46 @@ function decorateSides(world, b, zFrom, zTo, surfaceY, laneHalf) {
   }
 }
 
+// Place one obstacle theme's meshes at a race segment (Task #3: densified).
+// Extracted so a segment can layer a primary + secondary theme cheaply. Every
+// theme now spawns MORE instances than before for a busier gauntlet.
+function placeObstacleTheme(world, b, kind, top, midZ, z, segLen, laneHalf) {
+  if (kind === 'hammers') {
+    const n = 3 + (Math.random() * 3 | 0);            // was 2-4 -> now 3-5
+    for (let i = 0; i < n; i++)
+      world.addHammer(rand(-6, 6), top + 5.5, midZ + (i - n / 2) * 2.4, 3.4, rand(1.2, 2.1), rand(0, 6));
+  } else if (kind === 'rotor') {
+    world.addRotor(0, top + 0.9, midZ, rand(8, 12), rand(1.0, 1.9) * (Math.random() < .5 ? 1 : -1));
+    // second + occasional third stacked rotor => denser sweep (was max 2)
+    world.addRotor(0, top + 1.6, midZ + rand(-4, 4), rand(6, 10), rand(1.0, 1.7) * (Math.random() < .5 ? 1 : -1));
+    if (Math.random() < 0.5)
+      world.addRotor(0, top + 2.3, midZ + rand(-4, 4), rand(5, 8), rand(1.2, 1.8) * (Math.random() < .5 ? 1 : -1));
+  } else if (kind === 'dice') {
+    const n = 2 + (Math.random() * 2 | 0);            // was 1-2 -> now 2-3
+    for (let i = 0; i < n; i++)
+      world.addRollingDie(rand(-6, 6), top + 0.9, z - 2, z + segLen + 2, rand(5, 9), rand(1.6, 2.2));
+  } else if (kind === 'blink') {
+    for (let i = 0; i < 8; i++)                        // was 6 -> now 8
+      world.addBlinkTile(rand(-6, 6), top + 0.05, z + 2 + i * (segLen / 9), 2.4, rand(2.5, 4), rand(0, 3));
+  } else if (kind === 'movers') {
+    const n = 2 + (Math.random() * 2 | 0);            // was 1-2 -> now 2-3
+    for (let i = 0; i < n; i++)
+      world.addMovingPlatform(rand(-3, 3), top + 0.1, midZ + (i - n / 2) * 4, rand(3, 4.5), 0.6, rand(3, 4.5),
+        b.accent, 'x', rand(3, 5), rand(0.8, 1.4), rand(0, 6));
+  } else if (kind === 'pusher') {
+    for (const side of [-1, 1]) {
+      world.addPusher(side * (laneHalf + 1), top + 1, midZ, 2.4, 2.4, 3, b.hazard,
+        laneHalf, rand(1.0, 1.6), Math.random() * 6);
+      // a second, offset piston per side for a tighter squeeze
+      if (Math.random() < 0.6)
+        world.addPusher(side * (laneHalf + 1), top + 1, midZ + rand(3, 6), 2.2, 2.2, 2.6, b.hazard,
+          laneHalf, rand(1.0, 1.6), Math.random() * 6);
+    }
+  } else if (kind === 'vines') {
+    for (let i = 0; i < 5; i++) world.addVineSwing(rand(-6, 6), top + 6, midZ + i * 2.4, 4);  // was 3 -> now 5
+  }
+}
+
 // Build a LONGER race gauntlet with SMOOTH elevation changes (Task #3: true
 // ramps, zero stairs) that climb onto mountainous plateaus and descend again,
 // jumpable gaps, rich biome-specific roadside scenery + collidable structures
@@ -189,34 +229,20 @@ function buildRace(world, cfg) {
 
     // --- obstacle theme for this segment (top = walkable surface). ---
     // `kind` was chosen above to decide flat-vs-rolling floor.
+    // Task #3: EVERY level now packs MORE obstacles — each theme spawns a
+    // denser set, and most segments layer a lightweight SECONDARY hazard on
+    // top of the primary theme for a busier, more chaotic gauntlet. All of it
+    // stays cheap: obstacles are shared-material meshes and the swept-hit sim
+    // handles a few dozen per level well inside the perf budget (Section 7).
     const top = surf;
-    if (kind === 'hammers') {
-      const n = 2 + (Math.random() * 3 | 0);
-      for (let i = 0; i < n; i++)
-        world.addHammer(rand(-5, 5), top + 5.5, midZ + (i - n / 2) * 2.6, 3.4, rand(1.2, 2.0), rand(0, 6));
-    } else if (kind === 'rotor') {
-      world.addRotor(0, top + 0.9, midZ, rand(8, 12), rand(1.0, 1.8) * (Math.random() < .5 ? 1 : -1));
-      if (Math.random() < 0.5)
-        world.addRotor(0, top + 1.6, midZ + rand(-4, 4), rand(6, 10), rand(1.0, 1.6) * (Math.random() < .5 ? 1 : -1));
-    } else if (kind === 'dice') {
-      const n = 1 + (Math.random() * 2 | 0);
-      for (let i = 0; i < n; i++)
-        world.addRollingDie(rand(-5, 5), top + 0.9, z - 2, z + segLen + 2, rand(5, 9), rand(1.6, 2.2));
-    } else if (kind === 'blink') {
-      for (let i = 0; i < 6; i++)
-        world.addBlinkTile(rand(-5, 5), top + 0.05, z + 2 + i * (segLen / 7), 2.4, rand(2.5, 4), rand(0, 3));
-    } else if (kind === 'movers') {
-      const n = 1 + (Math.random() * 2 | 0);
-      for (let i = 0; i < n; i++)
-        world.addMovingPlatform(rand(-3, 3), top + 0.1, midZ + (i - n / 2) * 4, rand(3, 4.5), 0.6, rand(3, 4.5),
-          b.accent, 'x', rand(3, 5), rand(0.8, 1.4), rand(0, 6));
-    } else if (kind === 'pusher') {
-      for (const side of [-1, 1]) {
-        world.addPusher(side * (laneHalf + 1), top + 1, midZ, 2.4, 2.4, 3, b.hazard,
-          laneHalf, rand(1.0, 1.6), Math.random() * 6);
-      }
-    } else if (kind === 'vines') {
-      for (let i = 0; i < 3; i++) world.addVineSwing(rand(-5, 5), top + 6, midZ + i * 3, 4);
+    placeObstacleTheme(world, b, kind, top, midZ, z, segLen, laneHalf);
+
+    // Secondary hazard sprinkled on flat-friendly segments to raise density
+    // (skip on 'movers'/'dice'/'blink' floors where a second mover would clash).
+    if (!needsFlat && seg > 1 && Math.random() < 0.5) {
+      const extras = ['hammers', 'rotor', 'pusher', 'vines'];
+      const extra = extras[(Math.random() * extras.length) | 0];
+      if (extra !== kind) placeObstacleTheme(world, b, extra, top, midZ + rand(-3, 3), z, segLen, laneHalf);
     }
 
     z += segLen;
@@ -253,18 +279,25 @@ function buildSurvival(world, cfg) {
     world.spawnPoints.push({ x: Math.cos(a) * (R - 3), y: 1.5, z: Math.sin(a) * (R - 3) });
   }
 
-  // central rotating bars that sweep the floor
+  // central rotating bars that sweep the floor (Task #3: extra middle sweeper)
   world.addRotor(0, 1.4, 0, R * 1.8, 0.9);
   world.addRotor(0, 1.9, 0, R * 1.4, -1.3);
-  // ring of pendulum hammers
-  const n = 8;
+  world.addRotor(0, 2.4, 0, R * 1.0, 1.7);
+  // ring of pendulum hammers (Task #3: denser ring, was 8 -> now 12)
+  const n = 12;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    world.addHammer(Math.cos(a) * (R - 1), 6, Math.sin(a) * (R - 1), 3.4, rand(1.2, 1.8), a);
+    world.addHammer(Math.cos(a) * (R - 1), 6, Math.sin(a) * (R - 1), 3.4, rand(1.2, 1.9), a);
   }
-  // blink tiles near edge to shrink safe zone over time
-  for (let i = 0; i < 10; i++) {
-    const a = (i / 10) * Math.PI * 2;
+  // an inner ring of shorter hammers for a second wall of danger
+  const n2 = 6;
+  for (let i = 0; i < n2; i++) {
+    const a = (i / n2) * Math.PI * 2 + 0.5;
+    world.addHammer(Math.cos(a) * (R - 6), 5.4, Math.sin(a) * (R - 6), 2.8, rand(1.4, 2.1), a);
+  }
+  // blink tiles near edge to shrink safe zone over time (Task #3: was 10 -> 16)
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
     world.addBlinkTile(Math.cos(a) * (R - 2), 1.05, Math.sin(a) * (R - 2), 2.6, rand(3, 5), rand(0, 4));
   }
   // scenic backdrop mountains ring the arena — rise from base ground (0) so
@@ -291,12 +324,17 @@ function buildKing(world, cfg) {
     const a = (i / CFG.MAX_PLAYERS) * Math.PI * 2;
     world.spawnPoints.push({ x: Math.cos(a) * (R - 2), y: 1.4, z: Math.sin(a) * (R - 2) });
   }
-  // sweeping bar to knock players off the throne
+  // sweeping bars to knock players off the throne (Task #3: two crossed bars)
   world.addRotor(0, 3.1, 0, 8, 1.1);
-  // pendulum hammers around edge
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2;
-    world.addHammer(Math.cos(a) * (R - 1), 6, Math.sin(a) * (R - 1), 3.2, 1.5, a);
+  world.addRotor(0, 3.5, 0, 6, -1.6);
+  // pendulum hammers around edge (Task #3: was 4 -> now 8)
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    world.addHammer(Math.cos(a) * (R - 1), 6, Math.sin(a) * (R - 1), 3.2, rand(1.3, 1.8), a);
+  }
+  // a couple of pushers shoving inward from the rim toward the throne
+  for (const side of [-1, 1]) {
+    world.addPusher(side * (R - 0.5), 2.6, 0, 2.2, 2.2, 2.6, b.hazard, R - 3, rand(1.0, 1.5), Math.random() * 6);
   }
   // floating scenic pillars around the sky arena
   for (let i = 0; i < 6; i++) {

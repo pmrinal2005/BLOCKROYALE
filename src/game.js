@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CFG, DT } from './config.js';
 import { CharacterPool } from './character.js';
 import { TrailSystem } from './trails.js';
+import { NameplateSystem } from './nameplates.js';
 import { buildLevel } from './levels.js';
 import { BIOMES } from './world.js';
 import { Entity } from './entity.js';
@@ -97,9 +98,13 @@ export class Game {
     this.scene.add(this.sky);
 
     this.charPool = new CharacterPool(this.scene, CFG.MAX_PLAYERS + 4, this.quality);
-    // Movement-trail renderer (Task #4). Shared instanced particle pools —
+    // Movement-trail renderer. Shared instanced particle pools —
     // draws every equipped trail in the lobby for a handful of draw calls.
     this.trails = new TrailSystem(this.scene, this.quality);
+    // Floating nameplates (Task #4): a pooled DOM-overlay label above every
+    // player's head, projected to screen space each frame. Lightweight — no
+    // extra WebGL geometry, crisp native text (see NameplateSystem).
+    this.nameplates = new NameplateSystem(this.host, CFG.MAX_PLAYERS + 4);
 
     this.entities = [];
     this.human = null;
@@ -252,6 +257,11 @@ export class Game {
     this.roundIndex = 0;
     this.matchResults = [];
     this.eliminatedOrder = [];
+    // Task #3: every match now starts on a RANDOM level and shuffles the biome
+    // sequence, so no two matches open with the same world. The round FORMAT
+    // funnel (race → survival → race → king) and elimination cadence are kept
+    // intact — only the biome/level each slot uses is randomized per match.
+    this.rounds = buildRandomRounds();
     document.getElementById('hud').classList.remove('hidden');
     const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
     if (isTouch) document.getElementById('touch-controls').classList.remove('hidden');
@@ -260,7 +270,7 @@ export class Game {
   }
 
   _buildRound() {
-    const cfg = CFG.ROUNDS[this.roundIndex];
+    const cfg = this.rounds[this.roundIndex];
     if (this.world) this.world.clear();
     this.world = buildLevel(this.scene, cfg);
     this._applyBiomeLighting();
@@ -335,7 +345,7 @@ export class Game {
 
   // ---------------- SIM STEP ----------------
   _simTick() {
-    const cfg = CFG.ROUNDS[this.roundIndex];
+    const cfg = this.rounds[this.roundIndex];
 
     // human intent
     if (this.human && this.human.alive && !this.human.finished) {
@@ -399,7 +409,7 @@ export class Game {
         if (e === this.human) { UI.toast('FINISH! 🏁', '#34d399'); audio.fanfare(); }
       }
     }
-    const cfg = CFG.ROUNDS[this.roundIndex];
+    const cfg = this.rounds[this.roundIndex];
     const finishedCount = this.entities.filter(e => e.finished).length;
     // end round when enough finished to satisfy 'keep'
     if (finishedCount >= cfg.keep) this._endRound('quota');
@@ -501,7 +511,7 @@ export class Game {
 
   _endRound(why) {
     if (this.state !== 'playing') return;
-    const cfg = CFG.ROUNDS[this.roundIndex];
+    const cfg = this.rounds[this.roundIndex];
 
     // Rank everyone for this round.
     // Finished (race) ranked by finishOrder; king ranked by controlTime;
@@ -547,7 +557,7 @@ export class Game {
 
   _advanceOrFinish() {
     const survivors = this._roundSurvivors || [];
-    const isFinal = this.roundIndex >= CFG.ROUNDS.length - 1;
+    const isFinal = this.roundIndex >= this.rounds.length - 1;
     // Win conditions: final round OR only <=1 player left overall
     if (isFinal || survivors.length <= 1) {
       this._finishMatch(survivors);
@@ -568,7 +578,7 @@ export class Game {
     document.getElementById('touch-controls').classList.add('hidden');
     UI.hideCountdown();
 
-    const cfg = CFG.ROUNDS[this.roundIndex];
+    const cfg = this.rounds[this.roundIndex];
     // Final placement order:
     let placement;
     if (cfg.type === 'king') {
@@ -677,6 +687,15 @@ export class Game {
     this.trails.update(frameDt);
     this._updateCamera(frameDt);
     this._updateSun(this._followTarget || this.human);
+
+    // Floating nameplates (Task #4): projected AFTER the camera moves so plates
+    // track heads exactly. Shown only in-match (countdown/playing/roundEnd);
+    // hidden on the menu preview + podium so they never clutter those screens.
+    if (this.nameplates) {
+      const showPlates = this.state === 'countdown' || this.state === 'playing' || this.state === 'roundEnd';
+      this.nameplates.setVisible(showPlates);
+      if (showPlates) this.nameplates.update(this.entities, this.camera, this.human);
+    }
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -797,6 +816,35 @@ export class Game {
     this.camera.position.copy(this._camPos);
     this.camera.lookAt(target.x, target.y + 1.4, target.z);
   }
+}
+
+// ------------------------------------------------------------
+// Task #3: per-match RANDOM level sequence.
+// The battle-royale funnel (round FORMATS + elimination cadence from
+// CFG.ROUNDS) is preserved, but each match:
+//   1. shuffles which biome each round is played in, and
+//   2. randomizes the objective/time jitter a touch,
+// so the game "starts with a random level" and never runs the same
+// biome order twice in a row. Returns a fresh ROUNDS-shaped array that
+// the Game consumes via this.rounds instead of the static CFG.ROUNDS.
+// ------------------------------------------------------------
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function buildRandomRounds() {
+  const ALL_BIOMES = ['jungle', 'lava', 'ice', 'sky'];
+  const bag = shuffle(ALL_BIOMES);         // a random, non-repeating biome order
+  // Clone the canonical funnel so we never mutate CFG.ROUNDS.
+  const rounds = CFG.ROUNDS.map(r => ({ ...r }));
+  // Assign a distinct random biome to each round (wraps if >4 rounds).
+  rounds.forEach((r, i) => { r.biome = bag[i % bag.length]; });
+  return rounds;
 }
 
 // helpers ----------------------------------------------------
