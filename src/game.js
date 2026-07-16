@@ -270,6 +270,9 @@ export class Game {
   }
 
   _buildRound() {
+    // (Task #3) leaving any prior SpectatorMode as a new round spins up. If the
+    // human survived to this round their controls are re-enabled below.
+    this._exitSpectate();
     const cfg = this.rounds[this.roundIndex];
     if (this.world) this.world.clear();
     this.world = buildLevel(this.scene, cfg);
@@ -284,6 +287,13 @@ export class Game {
       survivors = this.entities.filter(e => e.alive && !this._isEliminated(e));
     }
     this.entities = survivors;
+
+    // (Task #3) Re-enable the local player's controls for the new round ONLY if
+    // they actually survived into it. If the human was eliminated but the match
+    // plays on with bots, keep input disabled and drop straight back into
+    // SpectatorMode so they can keep watching.
+    const humanSurvived = !!(this.human && survivors.includes(this.human) && !this._isEliminated(this.human));
+    this.input.enabled = humanSurvived;
 
     // reset + place at spawn points
     const sp = this.world.spawnPoints;
@@ -309,6 +319,10 @@ export class Game {
     this._updateHudTimer();
     audio.startMusic();
     UI.toast(cfg.name, '#ffd23f');
+
+    // (Task #3) Human was knocked out earlier but the match rolls on with bots:
+    // drop them back into SpectatorMode for the new round so they keep watching.
+    if (this.human && !humanSurvived) this._enterSpectate('eliminated');
   }
 
   _makeLobby() {
@@ -406,7 +420,13 @@ export class Game {
         e.won = true;
         e.finishOrder = ++this._finishCounter || (this._finishCounter = 1);
         this.matchResults.push(e); // earliest finishers first
-        if (e === this.human) { UI.toast('FINISH! 🏁', '#34d399'); audio.fanfare(); }
+        if (e === this.human) {
+          UI.toast('QUALIFIED! 🏁', '#34d399'); audio.fanfare();
+          // (Task #3) crossing the finish line = QUALIFIED. Immediately hand
+          // over to SpectatorMode so the player watches the remaining racers
+          // fight for the last qualifying spots instead of idling at the line.
+          this._enterSpectate('qualified');
+        }
       }
     }
     const cfg = this.rounds[this.roundIndex];
@@ -493,18 +513,97 @@ export class Game {
     if (e === this.human) {
       audio.poof(); audio.aww();
       UI.toast('Oof! 💫', '#ff5ea2');
-      this._enterSpectate();
-    } else {
-      if (e === this.human) audio.poof();
+      this._enterSpectate('eliminated');
     }
     this._updateHudAlive();
   }
 
-  _enterSpectate() {
-    this._hud.place.classList.remove('hidden');
-    const left = this.entities.filter(x => x.alive || x.finished).length;
-    this._hud.place.textContent = `💀 Out! Spectating… (${left} left)`;
+  // ============================================================
+  // SPECTATOR SYSTEM (Task #3)
+  // Activates ONLY after the local player either QUALIFIES (finished a race /
+  // survived a round) or is ELIMINATED. On activation it:
+  //   1. disables the local player's movement + action input,
+  //   2. filters spectate targets to players/bots STILL RUNNING the race
+  //      (excludes anyone eliminated OR already qualified/finished),
+  //   3. shows a UI overlay with the watched player's name + ◀ ▶ controls,
+  //   4. lets Left/Right arrows (or the on-screen buttons) cycle targets.
+  // Deactivated automatically at round end / match end / return to menu.
+  // ============================================================
+
+  // Targets that are still ACTIVELY racing: alive, not finished, not eliminated.
+  // These are the only valid spectate subjects per the spec.
+  _activeSpectateTargets() {
+    return this.entities.filter(e =>
+      e.alive && !e.finished && !this._isEliminated(e) && e !== this.human
+    );
+  }
+
+  // Enter SpectatorMode. `reason` is 'eliminated' | 'qualified' and only changes
+  // the status copy; the camera behaviour is identical for both.
+  _enterSpectate(reason = 'eliminated') {
+    // idempotent — never stack overlays or re-disable twice
+    if (this.spectating) { this._spectateReason = reason; this._refreshSpectateUI(); return; }
+    this.spectating = true;
+    this._spectateReason = reason;
     this.spectateIndex = 0;
+
+    // 1) DISABLE local player's movement / action controls, flag spectating so
+    //    the arrow-key cycle still works while normal input is off.
+    this.input.enabled = false;
+    this.input.spectating = true;
+    if (this.human) { this.human.intent.mx = 0; this.human.intent.mz = 0; }
+
+    // legacy HUD banner stays hidden now that we have the richer overlay
+    this._hud.place.classList.add('hidden');
+
+    // 2/3) mount the overlay with working prev/next handlers
+    this._specUI = UI.showSpectator({
+      status: reason === 'qualified' ? '✅ Qualified — Spectating' : '💀 Eliminated — Spectating',
+      onPrev: () => this._cycleSpectate(-1),
+      onNext: () => this._cycleSpectate(1),
+    });
+    this._refreshSpectateUI();
+  }
+
+  _exitSpectate() {
+    if (!this.spectating) return;
+    this.spectating = false;
+    this._spectateTarget = null;
+    if (this.input) this.input.spectating = false;
+    UI.hideSpectator();
+    this._specUI = null;
+    this._hud.place.classList.add('hidden');
+  }
+
+  // Step the spectate target index by +1 (next) / -1 (prev), wrapping around
+  // the current list of active targets.
+  _cycleSpectate(step) {
+    const targets = this._activeSpectateTargets();
+    if (targets.length === 0) return;
+    audio.click && audio.click();
+    this.spectateIndex = ((this.spectateIndex + step) % targets.length + targets.length) % targets.length;
+    this._refreshSpectateUI();
+  }
+
+  // Called every frame while spectating: consume arrow/button requests, keep
+  // the index in range as targets get eliminated, and refresh the overlay name.
+  _tickSpectate() {
+    if (!this.spectating) return;
+    const step = this.input.getSpectateStep ? this.input.getSpectateStep() : 0;
+    if (step !== 0) this._cycleSpectate(step);
+    // targets shrink as the round continues — keep the index valid
+    const targets = this._activeSpectateTargets();
+    if (targets.length > 0) this.spectateIndex %= targets.length;
+    this._refreshSpectateUI();
+  }
+
+  _refreshSpectateUI() {
+    if (!this._specUI) return;
+    const targets = this._activeSpectateTargets();
+    const t = targets[this.spectateIndex] || null;
+    this._spectateTarget = t;
+    const name = t ? (t.isBot ? `${t.name}` : t.name) : '—';
+    this._specUI.setTarget(name, targets.length);
   }
 
   _aliveOrFinished() { return this.entities.filter(e => e.alive || e.finished); }
@@ -574,6 +673,7 @@ export class Game {
   _finishMatch(finalSurvivors) {
     this.state = 'podium';
     this.input.enabled = false;
+    this._exitSpectate();   // (Task #3) tear down spectator overlay before podium
     document.getElementById('hud').classList.add('hidden');
     document.getElementById('touch-controls').classList.add('hidden');
     UI.hideCountdown();
@@ -634,6 +734,7 @@ export class Game {
 
   toMenu() {
     this.state = 'preview';
+    this._exitSpectate();   // (Task #3) ensure no stray spectator overlay on menu
     document.getElementById('hud').classList.add('hidden');
     document.getElementById('touch-controls').classList.add('hidden');
     this.input.enabled = false;
@@ -662,6 +763,10 @@ export class Game {
     if (frameDt > 0.1) frameDt = 0.1; // clamp big stalls
 
     this._updateState(frameDt);
+
+    // (Task #3) drive the spectator controller every frame while it is active
+    // (consume arrow/button cycle requests, keep the target valid, refresh UI).
+    if (this.spectating) this._tickSpectate();
 
     // fixed-step sim
     if (this.state === 'playing') {
@@ -786,9 +891,19 @@ export class Game {
       return;
     }
 
-    // follow human, or spectate a living player if eliminated
-    if (this.human && (this.human.alive || this.human.finished)) target = this.human;
-    else {
+    // (Task #3) While SpectatorMode is active (local player Eliminated OR
+    // Qualified) the camera follows the chosen ACTIVE target picked via the
+    // ◀ ▶ / arrow cycle. Otherwise it follows the local player normally.
+    if (this.spectating) {
+      const targets = this._activeSpectateTargets();
+      target = this._spectateTarget && targets.includes(this._spectateTarget)
+        ? this._spectateTarget
+        : (targets[this.spectateIndex % Math.max(1, targets.length)] || null);
+      // no one left to watch (round about to end) — hold on the human's body
+      if (!target) target = this.human;
+    } else if (this.human && (this.human.alive || this.human.finished)) {
+      target = this.human;
+    } else {
       const specs = this._aliveOrFinished();
       target = specs[this.spectateIndex % Math.max(1, specs.length)] || this.human;
     }

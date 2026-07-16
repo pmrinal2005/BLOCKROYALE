@@ -287,6 +287,55 @@ export function showEliminated(place, aliveLeft) {
   return b;
 }
 
+// ============================================================
+// Spectator overlay (Task #3).
+// A self-contained panel that mounts into #ui-root the moment the local
+// player enters SpectatorMode (Eliminated OR Qualified). It shows:
+//   - a status line ("Eliminated" / "Qualified — spectating"),
+//   - the name of the player currently being watched ("Spectating: Bot_…"),
+//   - ◀ / ▶ buttons (plus a hint that Arrow keys work too) to cycle targets.
+// Returns a small controller the Game drives each frame via setTarget().
+// It is fully removed by hide() when the round/match ends.
+// ============================================================
+export function showSpectator({ status, onPrev, onNext } = {}) {
+  hideSpectator();
+  const root = document.getElementById('ui-root');
+  const panel = el(`
+    <div id="spectator-overlay" class="spectator-overlay">
+      <div class="spec-status">${esc(status || 'Spectating')}</div>
+      <div class="spec-target-row">
+        <button class="spec-btn spec-prev" aria-label="Previous player">◀</button>
+        <div class="spec-target">
+          <div class="spec-target-label">Spectating</div>
+          <div class="spec-target-name" id="spec-name">—</div>
+        </div>
+        <button class="spec-btn spec-next" aria-label="Next player">▶</button>
+      </div>
+      <div class="spec-hint">Use ◀ ▶ or Arrow keys to switch players</div>
+    </div>
+  `);
+  root.appendChild(panel);
+  const nameEl = panel.querySelector('#spec-name');
+  const statusEl = panel.querySelector('.spec-status');
+  panel.querySelector('.spec-prev').onclick = (e) => { e.preventDefault(); onPrev && onPrev(); };
+  panel.querySelector('.spec-next').onclick = (e) => { e.preventDefault(); onNext && onNext(); };
+  // block touch from falling through to camera-drag on mobile
+  panel.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+
+  return {
+    setTarget(name, count) {
+      if (nameEl) nameEl.textContent = count > 0 ? `${name}` : 'No players left';
+    },
+    setStatus(txt) { if (statusEl) statusEl.textContent = txt; },
+    el: panel,
+  };
+}
+
+export function hideSpectator() {
+  const p = document.getElementById('spectator-overlay');
+  if (p) p.remove();
+}
+
 // ---------- HUD helpers ----------
 export function toast(text, color) {
   const wrap = document.getElementById('hud-toast-wrap');

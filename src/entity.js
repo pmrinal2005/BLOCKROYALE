@@ -2,6 +2,12 @@ import { CFG } from './config.js';
 import { resolveEntity, integrate } from './physics.js';
 import { solvePose } from './character.js';
 
+// Player capsule height (mirrors physics.js). Used for water-trigger mid-body
+// sampling and melee vertical-band checks. Defined here so entity.js has no
+// implicit global dependency (this was previously an undefined `H` reference
+// that crashed the sim tick the moment water detection ran).
+const H = CFG.PLAYER_HEIGHT;
+
 // ============================================================
 // Entity: shared state + kinematics for humans and bots.
 // A human's intent comes from input; a bot's from BotBrain.

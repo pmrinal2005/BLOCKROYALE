@@ -13,9 +13,17 @@ export class InputManager {
     this.jumpQueued = false;
     this.diveQueued = false;
     this.meleeQueued = false;   // Knockback melee (Task #3): F / right-click / PUNCH btn
+    // ---- Spectator target-cycle requests (Task #3 spectator system) ----
+    // One-shot flags consumed by Game while in SpectatorMode. Left/Right arrow
+    // (or on-screen ◀ ▶ buttons) request the previous / next active target.
+    // These fire independently of movement because movement input is DISABLED
+    // the moment the local player is Eliminated or Qualified.
+    this.specPrevQueued = false;
+    this.specNextQueued = false;
     this.pointerLocked = false;
     this.touch = { active: false, mx: 0, mz: 0 };
     this.enabled = false;
+    this.spectating = false;   // (Task #3) raised by Game while SpectatorMode is on
     this._lastDir = null; this._lastDirTime = 0;
     // Jump-press buffering (Task #1/#2): remember the last time Space was
     // pressed so a fast SECOND press reliably resolves to the mid-air dive
@@ -27,8 +35,16 @@ export class InputManager {
 
   _bind() {
     addEventListener('keydown', (e) => {
-      if (!this.enabled) return;
       const k = e.key.toLowerCase();
+      // ---- Spectator cycling (Task #3) ----
+      // These must work even when normal gameplay input is DISABLED (the local
+      // player is Eliminated/Qualified). We gate them on `spectating`, a flag the
+      // Game raises while SpectatorMode is active, NOT on `enabled`.
+      if (this.spectating) {
+        if (k === 'arrowleft' || k === 'a') { this.specPrevQueued = true; e.preventDefault(); return; }
+        if (k === 'arrowright' || k === 'd') { this.specNextQueued = true; e.preventDefault(); return; }
+      }
+      if (!this.enabled) return;
       if (e.repeat) return;          // ignore key-auto-repeat for one-shot actions
       this.keys[k] = true;
       if (k === ' ') {
@@ -181,6 +197,15 @@ export class InputManager {
     const dive = this.diveQueued; this.diveQueued = false;
     const melee = this.meleeQueued; this.meleeQueued = false;   // Task #3
     return { mx, mz, jump, dive, melee };
+  }
+
+  // Consume the one-shot spectator cycle requests (Task #3). Returns -1 for a
+  // "previous target" request, +1 for "next", or 0 if none this frame.
+  getSpectateStep() {
+    let step = 0;
+    if (this.specPrevQueued) { step -= 1; this.specPrevQueued = false; }
+    if (this.specNextQueued) { step += 1; this.specNextQueued = false; }
+    return step;
   }
 }
 
