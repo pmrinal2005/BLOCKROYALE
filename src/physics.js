@@ -261,6 +261,34 @@ function knock(e, dx, dz, force) {
 
 // Integrate one entity's velocity/position for a fixed step.
 export function integrate(e, world, dt, ground) {
+  // ------------------------------------------------------------
+  // SWIMMING branch (Task #2). While inside a water trigger volume the normal
+  // ground/air kinematics are replaced by buoyant, heavily-damped motion:
+  //   - gravity is mostly cancelled (WATER_GRAVITY_MULT),
+  //   - a buoyant upward accel lifts a sinking body toward the surface,
+  //   - strong isotropic drag on all three axes gives the thick, floaty feel.
+  // Exiting the volume (ground.water == null next tick) restores the normal
+  // running/air physics below automatically.
+  // ------------------------------------------------------------
+  if (ground.water) {
+    e.vy += CFG.GRAVITY * CFG.WATER_GRAVITY_MULT * dt;   // tiny residual sink
+    // Buoyancy: push up while below the (slightly submerged) surface line so
+    // the body naturally floats up to bob at the waterline instead of sinking.
+    const target = ground.water.surfaceTop - CFG.WATER_SURFACE_MARGIN;
+    if (e.y < target) {
+      e.vy += CFG.WATER_BUOYANCY * dt;
+      if (e.vy > CFG.WATER_MAX_RISE) e.vy = CFG.WATER_MAX_RISE;   // never rocket out
+    }
+    // heavy linear drag (all axes) — water resists motion in every direction
+    const wd = Math.max(0, 1 - CFG.WATER_DRAG * dt);
+    e.vx *= wd; e.vy *= wd; e.vz *= wd;
+
+    e.x += e.vx * dt;
+    e.y += e.vy * dt;
+    e.z += e.vz * dt;
+    return;
+  }
+
   // gravity
   e.vy += CFG.GRAVITY * dt;
 

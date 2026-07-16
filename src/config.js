@@ -31,6 +31,21 @@ export const CFG = {
   MELEE_ANIM_TIME: 0.32,    // punch animation length
   ACCEL: 68,                // ground acceleration (nudged up so the higher top speed is reached snappily)
   FRICTION: 12,             // ground damping
+
+  // --- Localized Water Zone / Swimming (Task #2) ---
+  // A designated 3D water VOLUME on part of a race track. Entering it flips the
+  // player's movement state Running -> Swimming: buoyancy fights gravity, motion
+  // is slower & heavily damped, and jump/dive are repurposed to swim UP/DOWN.
+  // Exiting the volume restores normal running physics & animation instantly.
+  WATER_SWIM_SPEED: 5.2,    // horizontal swim speed (units/s) — slower than the 9.4 run
+  WATER_ACCEL: 26,          // gentle in-water acceleration (water is "thick")
+  WATER_DRAG: 3.4,          // strong linear damping in every axis (heavy, floaty feel)
+  WATER_GRAVITY_MULT: 0.16, // gravity felt underwater is tiny (mostly cancelled by buoyancy)
+  WATER_BUOYANCY: 7.5,      // upward accel that lifts a sinking body toward the surface
+  WATER_SURFACE_MARGIN: 0.35,// stop buoyancy this far below the surface so you bob, not breach
+  WATER_SWIM_UP: 6.0,       // upward swim velocity when holding JUMP/up in water
+  WATER_SWIM_DOWN: 5.0,     // downward swim (dive) velocity when holding DIVE/down in water
+  WATER_MAX_RISE: 4.5,      // clamp buoyant rise so you never rocket out of the pool
   ICE_FRICTION: 1.6,        // slippery biome damping
   PLAYER_RADIUS: 0.42,      // capsule/AABB half-width
   PLAYER_HEIGHT: 1.7,

@@ -48,6 +48,7 @@ export class World {
     this.ramps = [];          // sloped surfaces for collision (Task #3)
     this.obstacles = [];      // {type, mesh, aabb, update(dt,t)}
     this.hazards = [];        // lava planes etc (fall/kill zones handled by Y)
+    this.waterZones = [];     // localized swim trigger volumes (Task #2)
     this.startZ = 0;
     this.finishZ = 0;
     this.finishX = 0;
@@ -341,6 +342,7 @@ export class World {
     this.group = new THREE.Group();
     this.scene.add(this.group);
     this.platforms = []; this.ramps = []; this.obstacles = []; this.hazards = [];
+    this.waterZones = [];
     this.spawnPoints = []; this.throne = null; this._t = 0;
     this._mergedMeshes = [];
     this._decorBatch.clear(); this._terrainBatch.clear();
@@ -502,6 +504,73 @@ export class World {
     const ob = { type: 'vine', mesh: g, update(dt, t) { g.rotation.x = Math.sin(t * 1.1) * 0.6; } };
     this.obstacles.push(ob);
     return ob;
+  }
+
+  // ------------------------------------------------------------
+  // Localized WATER ZONE (Task #2).
+  // A designated 3D trigger volume covering only PART of a track (not the whole
+  // level). It registers an AABB the sim tests each tick (waterAt) to flip a
+  // player Running <-> Swimming, plus a cheap translucent visual:
+  //   - a surface quad (the waterline you swim at), and
+  //   - a tinted volume box so the submerged section reads as a pool/river.
+  // `surfaceTop` = world Y of the waterline; `depth` = how far down the water
+  // reaches. Purely additive: collision/terrain are untouched, so a player can
+  // still stand on the pool floor if it is solid.
+  // ------------------------------------------------------------
+  addWater(x, surfaceTop, z, sx, sz, depth = 5, color = 0x2fa6d8) {
+    const cy = surfaceTop - depth / 2;
+    const zone = {
+      type: 'water',
+      x, z, y: cy,
+      sx, sz, sy: depth,
+      surfaceTop,
+      minX: x - sx / 2, maxX: x + sx / 2,
+      minZ: z - sz / 2, maxZ: z + sz / 2,
+      minY: surfaceTop - depth, maxY: surfaceTop,
+    };
+    this.waterZones.push(zone);
+
+    // Translucent volume — depthWrite off so submerged avatars stay visible.
+    const volMat = new THREE.MeshStandardMaterial({
+      color, transparent: true, opacity: 0.42, roughness: 0.25, metalness: 0.0,
+      depthWrite: false,
+    });
+    const vol = new THREE.Mesh(new THREE.BoxGeometry(sx, depth, sz), volMat);
+    vol.position.set(x, cy, z);
+    vol.renderOrder = 2;
+    this.group.add(vol);
+
+    // Brighter animated surface skin sitting exactly on the waterline.
+    const surfMat = new THREE.MeshStandardMaterial({
+      color, transparent: true, opacity: 0.6, roughness: 0.12, metalness: 0.1,
+      depthWrite: false, emissive: new THREE.Color(color).multiplyScalar(0.12),
+    });
+    const surf = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.12, sz), surfMat);
+    surf.position.set(x, surfaceTop, z);
+    surf.renderOrder = 3;
+    this.group.add(surf);
+
+    // gentle bob on the surface skin so the water reads as "alive" (near-free).
+    const baseY = surfaceTop;
+    zone.mesh = surf;
+    this.obstacles.push({
+      type: 'waterfx', mesh: surf,
+      update(dt, t) { surf.position.y = baseY + Math.sin(t * 1.6) * 0.06; },
+    });
+    return zone;
+  }
+
+  // Is the point (x,y,z) inside any localized water volume? Returns the zone
+  // (so callers can read its surfaceTop for buoyancy) or null. Cheap AABB test;
+  // levels have at most a couple of water zones. (Task #2)
+  waterAt(x, y, z) {
+    for (const w of this.waterZones) {
+      if (x < w.minX || x > w.maxX) continue;
+      if (z < w.minZ || z > w.maxZ) continue;
+      if (y < w.minY - 0.2 || y > w.maxY + 0.2) continue;
+      return w;
+    }
+    return null;
   }
 
   addFinishGate(x, y, z, w) {

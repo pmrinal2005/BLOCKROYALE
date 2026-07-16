@@ -428,6 +428,14 @@ export function solvePose(pose, state, phase, dt) {
     tLegL = 0.3; tLegR = -0.3; tArmL = -1.5; tArmR = -1.8;
   } else if (state === 'dive') {
     tArmL = -2.6; tArmR = -2.6; tLegL = 0.4; tLegR = 0.4;
+  } else if (state === 'swim') {
+    // (Task #2) breaststroke-ish paddle: arms sweep in an alternating circle,
+    // legs do a lazy flutter kick, gentle body bob. Horizontal, floaty read.
+    const s = Math.sin(phase * 7);
+    const c = Math.cos(phase * 7);
+    tArmL = -1.4 + s * 1.1; tArmR = -1.4 - s * 1.1;
+    tLegL = c * 0.5; tLegR = -c * 0.5;
+    bob = Math.sin(phase * 3.5) * 0.05;
   } else if (state === 'stumble') {
     // chaotic tumble — driven by stumble timer set externally
     const t = phase * 10;

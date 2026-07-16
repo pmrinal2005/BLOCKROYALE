@@ -121,6 +121,46 @@ function placeObstacleTheme(world, b, kind, top, midZ, z, segLen, laneHalf) {
   }
 }
 
+// Lay a localized WATER SECTION across the track (Task #2). It carves the lane
+// into a swimmable channel: the walkable floor DIPS to a submerged shelf, a
+// water trigger volume fills the dip up to `surf`, and the far bank rises back
+// to `surf` so you climb out and resume running. The water covers ONLY this
+// stretch of the level — everything before/after is normal dry track. Returns
+// the Z just past the exit bank so the caller keeps building seamlessly.
+function placeWaterSection(world, b, z, surf, laneW) {
+  const laneHalf = laneW / 2;
+  const poolLen = rand(20, 28);          // length of the swim channel
+  const floorDrop = 3.2;                 // how far the submerged floor sits below the surface
+  const floorTop = surf - floorDrop;     // walkable pool-bottom height (solid, so no death-fall)
+
+  // Entry lip so you can't clip the near wall, then the submerged floor slab.
+  const midZ = z + poolLen / 2;
+  // Solid pool floor (players who sink can push off it; also stops fall-off).
+  world.addSurface(0, floorTop, midZ, laneW, poolLen, b.rock, {});
+  // Side walls contain the channel visually + physically.
+  for (const side of [-1, 1]) {
+    world.addPlatform(side * (laneHalf + 0.3), surf - 0.4, midZ, 0.6, floorDrop + 1.4, poolLen, b.accent);
+  }
+  // The water volume itself: surface exactly at `surf`, reaching down to the floor.
+  world.addWater(0, surf, midZ, laneW - 0.4, poolLen, floorDrop + 0.3, biomeWater(b));
+  // Decorate the banks so the pool reads as an intentional feature.
+  decorateSides(world, b, z - 1, z + poolLen + 1, surf, laneHalf);
+
+  // Far exit bank: a short gentle ramp up out of the water back to `surf` — the
+  // floor already meets `surf` at the ends, so this is just a clean landing pad.
+  const bankLen = 6;
+  world.addSurface(0, surf, z + poolLen + bankLen / 2, laneW, bankLen, b.ground2, {});
+  return z + poolLen + bankLen;
+}
+
+// Pick a water tint that suits the biome (still clearly "water", just themed).
+function biomeWater(b) {
+  return b === BIOMES.lava ? 0x33c1c9        // teal geothermal pool in lava biome
+    : b === BIOMES.ice ? 0x5fd0ff             // icy meltwater
+    : b === BIOMES.sky ? 0x59c8ff             // bright sky pool
+    : 0x2fa6d8;                                // jungle river blue
+}
+
 // Build a LONGER race gauntlet with SMOOTH elevation changes (Task #3: true
 // ramps, zero stairs) that climb onto mountainous plateaus and descend again,
 // jumpable gaps, rich biome-specific roadside scenery + collidable structures
@@ -154,7 +194,21 @@ function buildRace(world, cfg) {
   let surf = START_TOP;
   let seg = 0;
 
+  // Task #2: place exactly ONE localized water swim-section per race, somewhere
+  // in the middle third of the track, on flat ground (so entry/exit are clean).
+  let waterPlaced = false;
+  const waterZoneStart = length * 0.34, waterZoneEnd = length * 0.66;
+
   while (z < length) {
+    // --- localized WATER SECTION (Task #2): a swim channel across the lane. ---
+    if (!waterPlaced && seg > 1 && z >= waterZoneStart && z < waterZoneEnd &&
+        surf <= START_TOP + 0.2) {
+      z = placeWaterSection(world, b, z, surf, laneW);
+      waterPlaced = true;
+      seg++;
+      continue;   // resume normal segments after the exit bank
+    }
+
     // --- optional gap the player must jump/dive across (only on flat runs so
     //     you never have to blind-jump off a slope). ---
     const gap = (seg > 1 && surf <= START_TOP + 0.2 && Math.random() < 0.28) ? rand(2.2, 3.8) : 0;

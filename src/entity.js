@@ -55,6 +55,14 @@ export class Entity {
     this.flipping = false;
     this.flipT = 0;
 
+    // ---- Localized water / swimming state (Task #2) ----
+    // inWater:      is the player currently inside a water trigger volume?
+    // waterSurfaceY: world Y of the waterline of the zone we're in (for buoyancy).
+    // Movement state is derived: 'swimming' while inWater, else 'running' (on
+    // ground) / airborne. Enter/exit transitions fire onWaterEnter/onWaterExit.
+    this.inWater = false;
+    this.waterSurfaceY = 0;
+
     // ---- Knockback melee state (Task #3) ----
     this.meleeCd = 0;        // cooldown remaining
     this.meleeTimer = 0;     // punch animation remaining
@@ -80,6 +88,8 @@ export class Entity {
     this.meleeCd = 0; this.meleeTimer = 0; this.meleeActive = 0;
     this._meleeFired = false; this.meleeSuper = false; this.inputLock = 0;
     this.pose.punch = 0;
+    // (Task #2) start dry on (re)spawn
+    this.inWater = false; this.waterSurfaceY = 0;
     // seed the "last safe" checkpoint at the spawn pad
     this.lastSafeX = sp.x; this.lastSafeY = sp.y; this.lastSafeZ = sp.z;
     this.respawns = 0;
@@ -96,6 +106,8 @@ export class Entity {
     this.jumpsLeft = 1;
     // (Task #2) mid-air respawn must not carry a stale flip.
     this.flipping = false; this.flipT = 0; this.pose.flip = 0;
+    // (Task #2) leave water state clean on a mid-air revive.
+    this.inWater = false; this.waterSurfaceY = 0;
     this.respawns++;
   }
 
@@ -112,6 +124,28 @@ export class Entity {
 
     const stumbling = this.stumbleTimer > 0;
     const mv = this.intent;
+
+    // ---- Water Zone trigger detection (Task #2) ----
+    // Sample the water volume at the body's mid-height. On a Running->Swimming
+    // transition we fire onWaterEnter (splash sfx) and kill any active flip/dive
+    // so the plunge blends into a swim; on Swimming->Running we fire onWaterExit.
+    const midY = this.y + H * 0.5;
+    const zone = world.waterAt ? world.waterAt(this.x, midY, this.z) : null;
+    const nowInWater = !!zone;
+    if (nowInWater && !this.inWater) {
+      this.inWater = true;
+      this.waterSurfaceY = zone.surfaceTop;
+      this.flipping = false; this.flipT = 0; this.pose.flip = 0;
+      this.diveTimer = 0;
+      this.onWaterEnter && this.onWaterEnter();
+    } else if (nowInWater) {
+      this.inWater = true;
+      this.waterSurfaceY = zone.surfaceTop;
+    } else if (this.inWater) {
+      this.inWater = false;
+      this.onWaterExit && this.onWaterExit();
+    }
+    const swimming = this.inWater;
 
     // ---- Knockback Melee (Task #3) ----
     // Fast, no-charge punch. Fires whenever requested and off cooldown, even
@@ -144,7 +178,29 @@ export class Entity {
     }
 
     // acceleration toward intent (disabled while stumbling or input-locked)
-    if (!stumbling && !inputLocked && !this.finished) {
+    if (!stumbling && !inputLocked && !this.finished && swimming) {
+      // ---- SWIMMING movement (Task #2) ----
+      // Slower horizontal speed with gentle, heavily-damped acceleration so the
+      // water feels thick and floaty. Vertical control is repurposed:
+      //   JUMP (or up) => swim UP,   DIVE (or down/shift) => swim DOWN.
+      const speed = CFG.WATER_SWIM_SPEED;
+      const len = Math.hypot(mv.mx, mv.mz);
+      if (len > 0.01) {
+        const nx = mv.mx / len, nz = mv.mz / len;
+        const tvx = nx * speed, tvz = nz * speed;
+        const a = CFG.WATER_ACCEL * dt;
+        this.vx += (tvx - this.vx) * Math.min(1, a / speed * 2);
+        this.vz += (tvz - this.vz) * Math.min(1, a / speed * 2);
+      }
+      // vertical swim: JUMP paddles up, DIVE (or a held-down intent) sinks.
+      if (mv.jump) {
+        this.vy = CFG.WATER_SWIM_UP;
+        this.onJump && this.onJump();
+      } else if (mv.dive) {
+        this.vy = -CFG.WATER_SWIM_DOWN;
+        this.onDive && this.onDive();
+      }
+    } else if (!stumbling && !inputLocked && !this.finished) {
       const speed = CFG.MOVE_SPEED;
       const control = this.grounded ? 1 : CFG.AIR_CONTROL;
       const len = Math.hypot(mv.mx, mv.mz);
@@ -188,7 +244,11 @@ export class Entity {
       }
     }
 
-    integrate(this, world, dt, { grounded: this.grounded, ice: this._ice, conveyor: this._conv });
+    integrate(this, world, dt, {
+      grounded: this.grounded, ice: this._ice, conveyor: this._conv,
+      // (Task #2) buoyancy + heavy drag + reduced gravity while submerged.
+      water: swimming ? { surfaceTop: this.waterSurfaceY } : null,
+    });
 
     const g = resolveEntity(this, world, dt);
     this.grounded = g.grounded;
@@ -257,6 +317,7 @@ export class Entity {
     } else {
       this.pose.stumble *= Math.max(0, 1 - dt * 8);
       if (this.finished && this.won) state = 'victory';
+      else if (this.inWater) state = 'swim';   // (Task #2) swimming paddle pose
       else if (this.flipping || (!this.grounded && this.diveTimer > 0)) state = 'dive';
       else if (!this.grounded && this.vy > 1) state = 'jump';
       else if (!this.grounded) state = 'fall';

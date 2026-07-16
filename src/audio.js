@@ -58,6 +58,9 @@ export class AudioBus {
   whoosh() { this._tone(760, 0.12, 'sine', 0.10, 300); }             // melee swing air whoosh (Task #3)
   punch()  { this._tone(150, 0.14, 'square', 0.22, 55);              // cartoon THWACK on connect
              this._tone(90, 0.18, 'sine', 0.16, 40, 0.02); }
+  splash() { this._tone(520, 0.18, 'sine', 0.16, 180);               // water entry splash (Task #2)
+             this._tone(300, 0.22, 'triangle', 0.12, 90, 0.03); }
+  drip()   { this._tone(900, 0.12, 'sine', 0.10, 420); }             // climbing out of water (Task #2)
 
   startMusic() {
     if (!this.musicOn) return;
