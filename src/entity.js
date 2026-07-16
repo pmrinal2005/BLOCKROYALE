@@ -44,9 +44,10 @@ export class Entity {
     this.respawns = 0;
 
     // render pose
-    this.pose = { armL: 0, armR: 0, legL: 0, legR: 0, bob: 0, headYaw: 0, stumble: 0 };
+    this.pose = { armL: 0, armR: 0, legL: 0, legR: 0, bob: 0, headYaw: 0, stumble: 0, flip: 0 };
     this.animState = 'idle';
     this.animPhase = 0;
+    this.flipT = 0;          // 0..1 progress of the dive front-flip (Task #2)
 
     // desired horizontal intent (unit-ish vector) & flags per tick
     this.intent = { mx: 0, mz: 0, jump: false, dive: false };
@@ -122,7 +123,7 @@ export class Entity {
         this.jumpsLeft--;
         this.onJump && this.onJump();
       } else if (wantDive && this.diveCd <= 0 && this.diveTimer <= 0) {
-        // Airborne second press (or explicit dive) = forward plunge.
+        // Airborne second press (or explicit dive) = forward PLUNGE + FLIP.
         const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
         this.vx = fx * CFG.DIVE_SPEED;
         this.vz = fz * CFG.DIVE_SPEED;
@@ -130,6 +131,7 @@ export class Entity {
         this.vy = Math.max(this.vy, CFG.DIVE_POP);
         this.diveTimer = CFG.DIVE_DURATION;
         this.diveCd = CFG.DIVE_COOLDOWN;
+        this.flipT = 0.0001;      // arm the forward-flip animation (Task #2)
         this.onDive && this.onDive();
       }
     }
@@ -160,6 +162,19 @@ export class Entity {
   updatePose(dt) {
     if (!this.alive) return;
     this.animPhase += dt;
+
+    // Advance the dive FRONT-FLIP (Task #2): once armed, spin the whole body a
+    // full turn forward. It keeps rolling until it completes (even if we land
+    // early) so the flip always reads as a clean 360°, then snaps cleanly off.
+    if (this.flipT > 0) {
+      // ~1.15 turns/sec => a full flip in a little under one second, matching
+      // the dive arc. Speed is identical for humans and bots (shared code).
+      this.flipT += dt * 1.15;
+      if (this.flipT >= 1) this.flipT = 0;   // completed one full rotation
+    }
+    // forward flip = negative X rotation of the whole avatar (tucks head-first)
+    this.pose.flip = this.flipT > 0 ? -this.flipT * Math.PI * 2 : this.pose.flip * Math.max(0, 1 - dt * 12);
+
     let state;
     if (this.stumbleTimer > 0) {
       state = 'stumble';
@@ -169,7 +184,7 @@ export class Entity {
     } else {
       this.pose.stumble *= Math.max(0, 1 - dt * 8);
       if (this.finished && this.won) state = 'victory';
-      else if (!this.grounded && this.diveTimer > 0) state = 'dive';
+      else if (this.flipT > 0 || (!this.grounded && this.diveTimer > 0)) state = 'dive';
       else if (!this.grounded && this.vy > 1) state = 'jump';
       else if (!this.grounded) state = 'fall';
       else if (Math.hypot(this.vx, this.vz) > 1.5) state = 'run';

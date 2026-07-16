@@ -129,13 +129,47 @@ export class World {
     this._batch(this._decorBatch, x, y, z, sx, sy, sz, color, rotY);
   }
 
+  // A flat DECORATIVE ground apron: a wide, thin merged slab that fills the
+  // scenery band on both sides of the walkable lane so roadside props NEVER
+  // hover over the void (Bug #3 / err1: floating trees & blocks). It sits at
+  // `top` (a walkable-surface height) with a chunky downward skirt so an
+  // elevated plateau reads as a solid mountainside instead of a floating strip.
+  // Purely visual (decor batch) — collision is unchanged; one draw call per
+  // colour for the whole course.
+  addGroundApron(xCenter, z, w, len, top, color, skirt = 6) {
+    const thick = 1.0;
+    // top cap flush with the track surface
+    this._batch(this._decorBatch, xCenter, top - thick / 2, z, w, thick, len, color);
+    // solid skirt below so there is never a see-through gap under the props
+    const sk = Math.max(0, skirt);
+    if (sk > 0.2) {
+      this._batch(this._decorBatch, xCenter, top - thick - sk / 2, z, w, sk, len, color);
+    }
+  }
+
+  // A chunky underside for a floating arena island so it reads as a solid
+  // hovering cube of rock (Section 3: "floating cube islands") rather than a
+  // paper-thin slab. Decoration only — a couple of tapered boxes, merged.
+  addIslandBase(x, topY, z, w, depth = 10, color = 0x6d4c41, accent = 0x5d4037) {
+    // main body just under the walkable slab
+    this._batch(this._decorBatch, x, topY - 0.6 - depth / 2, z, w * 0.98, depth, w * 0.98, color);
+    // a tapered lower block for a rocky, pointed underside
+    this._batch(this._decorBatch, x, topY - 0.6 - depth - depth * 0.35, z, w * 0.55, depth * 0.7, w * 0.55, accent);
+  }
+
   // A voxel "tree": trunk + a couple of leaf blocks. Decoration only.
+  // `groundY` is the true surface the tree's BASE rests on; the trunk is sunk
+  // slightly (−0.2) so it always visually bites into the ground (never floats),
+  // and the foliage is stacked directly on top of the trunk — fixing the
+  // "detached foliage / floating tree" issue from err1.PNG.
   addTree(x, groundY, z, trunk = 0x795548, leaf = 0x2e7d32, scale = 1) {
+    const base = groundY - 0.2;                       // sink the trunk into the ground
     const h = (2 + Math.random() * 1.5) * scale;
-    this.addDecor(x, groundY + h / 2, z, 0.5 * scale, h, 0.5 * scale, trunk);
+    this.addDecor(x, base + h / 2, z, 0.5 * scale, h, 0.5 * scale, trunk);
     const ls = (1.6 + Math.random()) * scale;
-    this.addDecor(x, groundY + h + ls * 0.35, z, ls, ls, ls, leaf, Math.random());
-    this.addDecor(x, groundY + h + ls * 0.9, z, ls * 0.6, ls * 0.6, ls * 0.6, leaf, Math.random());
+    const trunkTop = base + h;                          // foliage sits ON the trunk top
+    this.addDecor(x, trunkTop + ls * 0.30, z, ls, ls, ls, leaf, Math.random());
+    this.addDecor(x, trunkTop + ls * 0.85, z, ls * 0.62, ls * 0.62, ls * 0.62, leaf, Math.random());
   }
 
   // A SMOOTH sloped "mountain" (Task #3: natural elevation, ZERO steps/stairs).

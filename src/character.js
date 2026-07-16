@@ -30,11 +30,34 @@ const DIMS = {
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
+const _qFlip = new THREE.Quaternion();
 const _euler = new THREE.Euler();
 const _pos = new THREE.Vector3();
 const _scl = new THREE.Vector3();
 const _color = new THREE.Color();
 const _hidden = new THREE.Matrix4().makeScale(0, 0, 0); // collapse to hide
+
+// Height (in local avatar units) about which the dive front-flip rotates —
+// roughly the body's centre of mass so the tumble looks natural. (Task #2)
+const FLIP_PIVOT_Y = 0.95;
+
+// Apply a forward FLIP to a part's LOCAL (pre-yaw) offset. `flip` is the
+// rotation angle (radians) around the +X axis about FLIP_PIVOT_Y. Returns the
+// flipped local offset in-place via _pos, and rotates the given quaternion.
+// Local frame: +Z is the avatar's facing direction, +Y up. A forward flip is
+// a rotation around +X (so the head tucks forward toward +Z).
+function applyFlip(lx, ly, lz, flip, q) {
+  if (!flip) { _pos.set(lx, ly, lz); return; }
+  const dy = ly - FLIP_PIVOT_Y;
+  const c = Math.cos(flip), s = Math.sin(flip);
+  // rotate (dy, lz) in the Y-Z plane around +X
+  const ny = dy * c - lz * s;
+  const nz = dy * s + lz * c;
+  _pos.set(lx, FLIP_PIVOT_Y + ny, nz);
+  _euler.set(flip, 0, 0);
+  _qFlip.setFromEuler(_euler);
+  q.premultiply(_qFlip);
+}
 
 export class CharacterPool {
   constructor(scene, capacity, quality = { charShadows: false }) {
@@ -108,12 +131,17 @@ export class CharacterPool {
     let ly = oy + _pos.y + (pose.bob || 0);
     let lz = oz + _pos.z;
 
+    // dive FRONT-FLIP: rotate the whole limb about the body pivot (Task #2)
+    const flip = pose.flip || 0;
+    applyFlip(lx, ly, lz, flip, _q);
+    lx = _pos.x; ly = _pos.y; lz = _pos.z;
+
     // apply player yaw around Y to whole limb position
     const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
     const wx = lx * cosY + lz * sinY;
     const wz = -lx * sinY + lz * cosY;
 
-    // combined rotation: player yaw * limb rot (reuse _q2 to avoid GC)
+    // combined rotation: player yaw * (flip * limb rot) (reuse _q2 to avoid GC)
     _euler.set(0, yaw, 0);
     _q2.setFromEuler(_euler);
     _q2.multiply(_q);
@@ -147,11 +175,23 @@ export class CharacterPool {
     if (hat.color != null) {
       const d = DIMS.hat;
       const [sx, sy, sz] = hat.shape || d.size;
-      _euler.set(stumbleRoll, yaw, 0);
-      _q.setFromEuler(_euler);
-      _scl.set(sx, sy, sz);
       const hy = hat.y != null ? 1.55 + hat.y : d.pivot[1];
-      _m.compose(_pos.set(x, y + hy + (pose.bob||0), z), _q, _scl);
+      const flip = pose.flip || 0;
+      // stumble roll base rotation
+      _euler.set(stumbleRoll, 0, 0);
+      _q.setFromEuler(_euler);
+      // flip about the body pivot so the hat tumbles WITH the head (Task #2)
+      let lx = 0, ly = hy + (pose.bob || 0), lz = 0;
+      applyFlip(lx, ly, lz, flip, _q);
+      lx = _pos.x; ly = _pos.y; lz = _pos.z;
+      _euler.set(0, yaw, 0);
+      _q2.setFromEuler(_euler);
+      _q2.multiply(_q);
+      const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+      const wx = lx * cosY + lz * sinY;
+      const wz = -lx * sinY + lz * cosY;
+      _scl.set(sx, sy, sz);
+      _m.compose(_pos.set(x + wx, y + ly, z + wz), _q2, _scl);
       this.meshes.hat.setMatrixAt(idx, _m);
       _color.setHex(hat.color); this.meshes.hat.setColorAt(idx, _color);
     } else {
@@ -167,10 +207,25 @@ export class CharacterPool {
 
   _setPartSimple(part, idx, x, y, z, yaw, roll, d, pose, color) {
     const [sx, sy, sz] = d.size;
-    _euler.set(roll, yaw, roll * 0.6, 'XYZ');
+    const flip = pose.flip || 0;
+    // local (pre-yaw) position of the part centre
+    let lx = 0, ly = d.pivot[1] + (pose.bob || 0), lz = 0;
+    // rotation: stumble roll, then dive flip folded in below
+    _euler.set(roll, 0, roll * 0.6, 'XYZ');
     _q.setFromEuler(_euler);
+    // apply the front-flip about the body pivot (Task #2)
+    applyFlip(lx, ly, lz, flip, _q);
+    lx = _pos.x; ly = _pos.y; lz = _pos.z;
+    // fold in the head/body yaw last
+    _euler.set(0, yaw, 0);
+    _q2.setFromEuler(_euler);
+    _q2.multiply(_q);
+    // yaw the local XZ offset into world space
+    const cosY = Math.cos(yaw), sinY = Math.sin(yaw);
+    const wx = lx * cosY + lz * sinY;
+    const wz = -lx * sinY + lz * cosY;
     _scl.set(sx, sy, sz);
-    _m.compose(_pos.set(x, y + d.pivot[1] + (pose.bob || 0), z), _q, _scl);
+    _m.compose(_pos.set(x + wx, y + ly, z + wz), _q2, _scl);
     this.meshes[part].setMatrixAt(idx, _m);
     _color.setHex(color); this.meshes[part].setColorAt(idx, _color);
   }

@@ -17,17 +17,42 @@ function pick(arr) { return arr[(Math.random() * arr.length) | 0]; }
 
 // Scatter scenery along the sides of the track for the given Z range at
 // the current surface height. Decoration only — never touches collision.
+//
+// FLOATING-OBJECT FIX (err1.PNG): every roadside prop is now dropped onto a
+// solid, merged GROUND APRON laid at `surfaceY` on both flanks of the lane, so
+// trees, rocks and blocks always rest on real terrain instead of hovering over
+// the void beside an elevated plateau. The apron's downward skirt reaches all
+// the way to base ground, so an elevated section reads as a solid mountainside.
+// Distant mountains start from base ground (0) so their cones rise up out of
+// the world rather than floating at plateau height.
 function decorateSides(world, b, zFrom, zTo, surfaceY, laneHalf) {
   const outer = laneHalf + 3;
+  const len = Math.max(0.1, zTo - zFrom);
+  const midZ = (zFrom + zTo) / 2;
+  // How far the scenery band extends outward from the lane edge.
+  const bandInner = laneHalf;          // starts at the lane edge
+  const bandOuter = outer + 8;         // props scatter within [outer, outer+~8]
+  const bandW = bandOuter - bandInner; // width of one side apron
+  const bandCx = (bandInner + bandOuter) / 2;
+  // Skirt reaches to base ground so nothing looks like a floating shelf.
+  const skirt = Math.max(2, surfaceY + 4);
+
+  // Lay the solid ground apron on BOTH sides (props will sit on its top face).
+  for (const side of [-1, 1]) {
+    world.addGroundApron(side * bandCx, midZ, bandW, len + 2, surfaceY, side < 0 ? b.ground : b.ground2, skirt);
+  }
+
   for (let z = zFrom; z < zTo; z += rand(4, 8)) {
     for (const side of [-1, 1]) {
-      const x = side * (outer + rand(0, 6));
+      // keep props within the apron footprint so they always have ground below
+      const x = side * (outer + rand(0, Math.max(0.5, bandW - (outer - bandInner) - 1)));
       const r = Math.random();
       if (b.decoType === 'tree') {
         if (r < 0.6) world.addTree(x, surfaceY, z, b.accent, b.deco1, rand(0.8, 1.6));
-        else world.addDecor(x, surfaceY + 0.6, z, rand(1, 2.4), rand(1, 2), rand(1, 2.4), b.rock, Math.random());
+        else world.addDecor(x, surfaceY + rand(0.5, 1.0), z, rand(1, 2.4), rand(1, 2), rand(1, 2.4), b.rock, Math.random());
       } else if (b.decoType === 'rock') {
-        world.addDecor(x, surfaceY + rand(0.5, 1.5), z, rand(1.2, 3), rand(1.4, 3.5), rand(1.2, 3), r < 0.4 ? b.deco1 : b.rock, Math.random());
+        const h = rand(1.4, 3.5);
+        world.addDecor(x, surfaceY + h / 2, z, rand(1.2, 3), h, rand(1.2, 3), r < 0.4 ? b.deco1 : b.rock, Math.random());
       } else if (b.decoType === 'crystal') {
         const h = rand(2, 4.5);
         world.addDecor(x, surfaceY + h / 2, z, rand(0.6, 1.3), h, rand(0.6, 1.3), r < 0.5 ? b.deco2 : b.deco1, Math.random());
@@ -37,17 +62,21 @@ function decorateSides(world, b, zFrom, zTo, surfaceY, laneHalf) {
         world.addDecor(x, surfaceY + h + 0.3, z, rand(1.4, 2), 0.6, rand(1.4, 2), b.accent, 0);
       }
     }
-    // occasional roadside architecture for a richer skyline (Task #1)
+    // occasional roadside architecture for a richer skyline (Task #1) — sits on
+    // the apron so it is grounded too.
     if (Math.random() < 0.18) {
       const side = Math.random() < 0.5 ? -1 : 1;
-      world.addStructure(side * (outer + rand(2, 8)), surfaceY, z,
+      const sx = side * (outer + rand(1, Math.max(1.5, bandW - (outer - bandInner) - 2)));
+      world.addStructure(sx, surfaceY, z,
         pick(['arch', 'tower', 'ruin']), b.rock, b.accent);
     }
-    // occasional distant mountain for a mountainous skyline
+    // occasional distant mountain for a mountainous skyline. These stand FAR
+    // beyond the apron, so they rise from BASE GROUND (0) up past the plateau
+    // — a tall solid cone, never a floating pyramid.
     if (Math.random() < 0.28) {
       const side = Math.random() < 0.5 ? -1 : 1;
-      world.addMountain(side * (outer + rand(10, 22)), surfaceY - 2, z + rand(-4, 4),
-        rand(9, 15), rand(12, 22), b.mountain, b.snow);
+      world.addMountain(side * (bandOuter + rand(6, 20)), 0, z + rand(-4, 4),
+        rand(10, 16), rand(surfaceY + 14, surfaceY + 26), b.mountain, b.snow);
     }
   }
 }
@@ -214,6 +243,9 @@ function buildSurvival(world, cfg) {
   const R = 13;
   world.addSurface(0, 1, 0, R * 2, R * 2, b.ground);
   world.addSurface(0, 1.3, 0, R * 2 - 3, R * 2 - 3, b.ground2, { thick: 0.4 });
+  // solid rocky underside so the arena reads as a floating cube island, not a
+  // paper slab hovering over nothing (err1: no floating-looking geometry).
+  world.addIslandBase(0, 0.4, 0, R * 2, 16, b.rock, b.accent);
 
   // spawn ring
   for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
@@ -235,10 +267,11 @@ function buildSurvival(world, cfg) {
     const a = (i / 10) * Math.PI * 2;
     world.addBlinkTile(Math.cos(a) * (R - 2), 1.05, Math.sin(a) * (R - 2), 2.6, rand(3, 5), rand(0, 4));
   }
-  // scenic backdrop mountains ring the arena
+  // scenic backdrop mountains ring the arena — rise from base ground (0) so
+  // they read as solid massifs, never floating (err1 fix).
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2;
-    world.addMountain(Math.cos(a) * (R + 16), -2, Math.sin(a) * (R + 16), rand(10, 16), rand(14, 24), b.mountain, b.snow);
+    world.addMountain(Math.cos(a) * (R + 16), 0, Math.sin(a) * (R + 16), rand(10, 16), rand(16, 26), b.mountain, b.snow);
   }
   world.survivalArena = { R };
 }
@@ -248,6 +281,8 @@ function buildKing(world, cfg) {
   const b = BIOMES[cfg.biome];
   const R = 9;
   world.addSurface(0, 1, 0, R * 2, R * 2, b.ground2);
+  // solid rocky underside => a proper floating sky island (Section 3).
+  world.addIslandBase(0, 0.4, 0, R * 2, 14, b.rock, b.accent);
   // raised throne cube (walkable top at 2.4)
   world.addSurface(0, 2.4, 0, 5, 5, b.accent, { thick: 2.4 });
   world.throne = { x: 0, z: 0, r: 3.2, y: 2.2 };

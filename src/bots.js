@@ -47,9 +47,10 @@ export class BotBrain {
   _maybeAirDive() {
     const e = this.e;
     if (e.grounded || e.diveTimer > 0 || e.diveCd > 0) return;
-    // ~ once every few airborne seconds, biased by skill; race bots dive a bit
-    // more (to clear gaps) than survival/king bots.
-    const base = this.cfg.type === 'race' ? 0.06 : 0.035;
+    // ~ once every couple airborne seconds, biased by skill; race bots dive a
+    // bit more (to clear gaps) than survival/king bots. Bumped up so the flashy
+    // double-jump FLIP is clearly visible across the lobby at any time (Task #2).
+    const base = this.cfg.type === 'race' ? 0.11 : 0.06;
     if (Math.random() < base * this.skill) e.intent.dive = true;
   }
 
@@ -63,10 +64,11 @@ export class BotBrain {
 
     this._avoidHammers();
 
-    // jump gaps / obstacles occasionally
-    if (this.jumpTimer <= 0 && e.grounded && Math.random() < 0.02 * this.skill + 0.006) {
+    // jump gaps / obstacles occasionally (a bit more eager so bots get airborne
+    // often enough to show off the double-jump flip — Task #2)
+    if (this.jumpTimer <= 0 && e.grounded && Math.random() < 0.035 * this.skill + 0.008) {
       e.intent.jump = true;
-      this.jumpTimer = 0.6 + Math.random();
+      this.jumpTimer = 0.5 + Math.random();
     }
     // dive to cross gaps sometimes
     if (e.grounded && Math.random() < 0.004 * this.skill) e.intent.dive = true;
