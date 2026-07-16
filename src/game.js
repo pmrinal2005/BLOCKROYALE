@@ -131,15 +131,77 @@ export class Game {
     this.renderer.setSize(innerWidth, innerHeight);
   }
 
+  // Build the gradient SKY DOME (Task #1: photographic sky). A single large
+  // back-side sphere whose vertices carry a top→horizon colour gradient,
+  // drawn with a depth-write-off, fog-immune MeshBasicMaterial. ONE draw
+  // call, no per-frame cost, NO texture — it replaces the flat solid-colour
+  // background with an atmospheric graduated sky. The vertex colours are
+  // recoloured per biome in _applyBiomeLighting() via _paintSky().
+  _makeSkyDome() {
+    // Big enough to sit comfortably inside the camera far plane (320) but
+    // outside the play area; low segment count keeps it feather-light.
+    const geo = new THREE.SphereGeometry(280, 16, 10);
+    // Per-vertex colour attribute we recolour each biome (no re-alloc).
+    const count = geo.attributes.position.count;
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      side: THREE.BackSide,   // render the inside of the sphere
+      depthWrite: false,      // never occlude the scene
+      fog: false,             // sky must not be eaten by scene fog
+      toneMapped: true,       // participate in the filmic tonemap for cohesion
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = -1;    // draw first, behind everything
+    mesh.matrixAutoUpdate = false;
+    // seed with a neutral daytime gradient; biome recolour happens on build
+    this._paintSky(mesh, 0x9fd3ff, 0xeaf6ff);
+    return mesh;
+  }
+
+  // Paint the sky-dome vertices with a smooth zenith→horizon gradient.
+  // topHex = colour straight overhead, horizonHex = colour at the horizon.
+  _paintSky(mesh, topHex, horizonHex) {
+    if (!mesh) return;
+    const pos = mesh.geometry.attributes.position;
+    const col = mesh.geometry.attributes.color;
+    const top = new THREE.Color(topHex);
+    const hor = new THREE.Color(horizonHex);
+    const r = mesh.geometry.parameters.radius || 280;
+    const c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      // normalised height -1..1 -> 0..1, eased so the horizon band is wider
+      const h = THREE.MathUtils.clamp(pos.getY(i) / r, -1, 1);
+      const t = Math.pow(THREE.MathUtils.clamp(h * 0.5 + 0.5, 0, 1), 0.55);
+      c.copy(hor).lerp(top, t);
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    col.needsUpdate = true;
+  }
+
   // Tint the lighting to match the active biome so each world feels like a
   // distinct time-of-day / atmosphere (warm lava dusk, cool icy noon…).
   _applyBiomeLighting() {
-    const b = BIOMES[this.world?.biome] || BIOMES.jungle;
+    const biome = this.world?.biome || 'jungle';
+    const b = BIOMES[biome] || BIOMES.jungle;
     this.sun.color.setHex(b.sun);
     this.hemi.color.setHex(b.amb);
     // lava reads hotter/lower-key; ice reads brighter/cooler
-    this.renderer.toneMappingExposure = this.world?.biome === 'lava' ? 0.98
-      : this.world?.biome === 'ice' ? 1.12 : 1.05;
+    this.renderer.toneMappingExposure = biome === 'lava' ? 0.98
+      : biome === 'ice' ? 1.12 : 1.05;
+
+    // Recolour the gradient sky dome to match the biome atmosphere. Top =
+    // deeper sky, horizon = the biome's hazy fog colour so the dome blends
+    // seamlessly into the scene fog at the skyline.
+    const SKY = {
+      jungle: { top: 0x3aa0ff, hor: 0xcdeffb },
+      lava:   { top: 0xb5471e, hor: 0xffd0a6 },   // volcanic dusk glow
+      ice:    { top: 0x7ec8ff, hor: 0xeaf9ff },   // crisp cold noon
+      sky:    { top: 0x4aa8ff, hor: 0xe6f4ff },   // bright temple day
+    };
+    const s = SKY[biome] || SKY.jungle;
+    this._paintSky(this.sky, s.top, s.hor);
   }
 
   // Keep the shadow-casting sun anchored over whatever we're following so

@@ -9,13 +9,14 @@ export const CFG = {
   TICK_HZ: 30,              // logical sim rate (Section 1: 20-30Hz)
   MAX_PLAYERS: 32,          // full lobby (Section 3 round 1)
   GRAVITY: -34,             // units/s^2 (snappy, arcadey)
-  MOVE_SPEED: 8.2,          // units/s ground run
+  MOVE_SPEED: 9.4,          // units/s ground run (Task #3: bumped a little faster for everyone)
   AIR_CONTROL: 0.55,        // fraction of move accel while airborne
-  JUMP_VELOCITY: 12.2,
+  JUMP_VELOCITY: 12.4,      // slightly higher so jump arc still clears gaps at the faster run speed
   DIVE_SPEED: 15.5,         // forward lunge burst
   DIVE_DURATION: 0.42,      // seconds
   DIVE_COOLDOWN: 0.9,
-  ACCEL: 60,                // ground acceleration
+  DIVE_POP: 3,              // small upward pop when diving (double-jump arc)
+  ACCEL: 68,                // ground acceleration (nudged up so the higher top speed is reached snappily)
   FRICTION: 12,             // ground damping
   ICE_FRICTION: 1.6,        // slippery biome damping
   PLAYER_RADIUS: 0.42,      // capsule/AABB half-width

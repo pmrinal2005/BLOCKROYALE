@@ -26,5 +26,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 3000,
     strictPort: false
+  },
+  // Vite's preview server rejects unknown Host headers (403). Allow the
+  // sandbox/proxy hosts so the built site can be smoke-tested behind a proxy.
+  // Has no effect on the final static Vercel deploy (no server there).
+  preview: {
+    host: '0.0.0.0',
+    port: 3000,
+    allowedHosts: true
   }
 });

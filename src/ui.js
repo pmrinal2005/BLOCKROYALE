@@ -208,8 +208,8 @@ export function showHow() {
         <div class="panel-head"><h2>❓ How to Play</h2><button class="icon-btn" id="h-close">✕</button></div>
         <div class="panel-body" style="font-weight:600;line-height:1.7">
           <p>🎯 <b>Goal:</b> Survive 4 wild rounds and grab the Crown 👑</p>
-          <p>⌨️ <b>PC:</b> WASD / Arrows to move · Drag mouse to look · <b>Space</b> to jump · <b>Shift</b> (or double-tap a direction) to dive!</p>
-          <p>📱 <b>Mobile:</b> Left joystick to move · tap <b>JUMP</b> / <b>DIVE</b> · drag right side to look.</p>
+          <p>⌨️ <b>PC:</b> WASD / Arrows to move · Drag mouse to look · <b>Space</b> to jump · tap <b>Space AGAIN in mid-air to Double-Jump Dive</b> (forward plunge)! · <b>Shift</b> also dives.</p>
+          <p>📱 <b>Mobile:</b> Left joystick to move · tap <b>JUMP</b> (again mid-air = Dive) / <b>DIVE</b> · drag right side to look.</p>
           <p>💥 Bump rivals, dodge hammers, and don't fall off!</p>
           <p>😆 Falling is fun — it's just the punchline. You'll respawn to spectate and jump right back next match.</p>
           <p>🪙 Earn Blocks Coins to unlock skins, hats & trails in the Locker.</p>

@@ -34,6 +34,23 @@ export class BotBrain {
     if (this.cfg.type === 'race') this._race(dt);
     else if (this.cfg.type === 'survival') this._survival(dt);
     else if (this.cfg.type === 'king') this._king(dt);
+
+    // Double-Jump Dive (Task #2): bots plunge mid-air "time to time, anytime".
+    // Any round type, whenever airborne and off cooldown, a bot may fire a
+    // second-press dive — the exact same forward plunge the human gets. Skill
+    // scales how eager/able they are, so it reads as playful, not robotic.
+    this._maybeAirDive();
+  }
+
+  // Occasionally trigger the airborne dive (the second-jump plunge). Uses the
+  // same intent.dive flag the human's 2nd-space press resolves to in Entity.
+  _maybeAirDive() {
+    const e = this.e;
+    if (e.grounded || e.diveTimer > 0 || e.diveCd > 0) return;
+    // ~ once every few airborne seconds, biased by skill; race bots dive a bit
+    // more (to clear gaps) than survival/king bots.
+    const base = this.cfg.type === 'race' ? 0.06 : 0.035;
+    if (Math.random() < base * this.skill) e.intent.dive = true;
   }
 
   _race(dt) {

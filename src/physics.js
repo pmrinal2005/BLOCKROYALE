@@ -201,9 +201,20 @@ export function integrate(e, world, dt, ground) {
   // gravity
   e.vy += CFG.GRAVITY * dt;
 
-  // horizontal friction (ice = low)
+  // horizontal friction (ice = low).
+  // IMPORTANT (speed fix): friction is a STOPPING force — it should brake the
+  // player when they aren't actively pushing, not constantly bleed the speed
+  // of a player who IS running. Previously full friction was applied every
+  // tick regardless of input, so ground speed settled far below MOVE_SPEED
+  // (≈3.9 instead of the configured value) — the run never felt as fast as
+  // intended. We now apply full friction only when there is little/no move
+  // intent; while actively running we apply a much gentler drag so the
+  // acceleration in Entity.tick can actually reach the target top speed.
+  // Ice keeps its signature low friction in BOTH cases (slippery).
+  const hasIntent = e.intent && Math.hypot(e.intent.mx || 0, e.intent.mz || 0) > 0.15;
   if (ground.grounded) {
-    const fr = ground.ice ? CFG.ICE_FRICTION : CFG.FRICTION;
+    let fr = ground.ice ? CFG.ICE_FRICTION : CFG.FRICTION;
+    if (hasIntent && !ground.ice) fr *= 0.18;   // gentle drag while running (non-ice)
     const damp = Math.max(0, 1 - fr * dt);
     e.vx *= damp; e.vz *= damp;
     // conveyor push

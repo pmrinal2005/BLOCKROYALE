@@ -106,23 +106,31 @@ export class Entity {
         this.vz += (tvz - this.vz) * Math.min(1, a / speed * 2);
       }
 
-      // dive lunge
-      if (mv.dive && this.diveCd <= 0 && this.diveTimer <= 0) {
-        const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
-        this.vx = fx * CFG.DIVE_SPEED;
-        this.vz = fz * CFG.DIVE_SPEED;
-        this.vy = Math.max(this.vy, 3);
-        this.diveTimer = CFG.DIVE_DURATION;
-        this.diveCd = CFG.DIVE_COOLDOWN;
-        this.onDive && this.onDive();
-      }
+      // ---- Jump / Double-Jump-Dive (Task #2) ----
+      // Pressing jump/space a SECOND time while airborne performs the
+      // forward "Dive" plunge (the officially-named Double Jump / Diving).
+      // We fold this into the jump handler so a double-tap of the SAME
+      // button does it — humans and bots share this identical code path.
+      const wantDive = mv.dive ||               // dedicated dive input (Shift / swipe / dbl-tap dir)
+        (mv.jump && !this.grounded);            // 2nd jump press mid-air => dive
+      const wantGroundJump = mv.jump && this.grounded && this.jumpsLeft > 0;
 
-      // jump
-      if (mv.jump && this.grounded && this.jumpsLeft > 0) {
+      if (wantGroundJump) {
+        // First press on the ground = a normal jump.
         this.vy = CFG.JUMP_VELOCITY;
         this.grounded = false;
         this.jumpsLeft--;
         this.onJump && this.onJump();
+      } else if (wantDive && this.diveCd <= 0 && this.diveTimer <= 0) {
+        // Airborne second press (or explicit dive) = forward plunge.
+        const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw);
+        this.vx = fx * CFG.DIVE_SPEED;
+        this.vz = fz * CFG.DIVE_SPEED;
+        // a small pop so the dive arcs forward instead of dropping like a stone
+        this.vy = Math.max(this.vy, CFG.DIVE_POP);
+        this.diveTimer = CFG.DIVE_DURATION;
+        this.diveCd = CFG.DIVE_COOLDOWN;
+        this.onDive && this.onDive();
       }
     }
 
