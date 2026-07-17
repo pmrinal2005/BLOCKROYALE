@@ -122,35 +122,59 @@ function placeObstacleTheme(world, b, kind, top, midZ, z, segLen, laneHalf) {
 }
 
 // Lay a localized WATER SECTION across the track (Task #2). It carves the lane
-// into a swimmable channel: the walkable floor DIPS to a submerged shelf, a
-// water trigger volume fills the dip up to `surf`, and the far bank rises back
-// to `surf` so you climb out and resume running. The water covers ONLY this
-// stretch of the level — everything before/after is normal dry track. Returns
-// the Z just past the exit bank so the caller keeps building seamlessly.
+// into a swimmable channel. CRITICAL (real-world bug fix): entry and exit are
+// SEAMLESS SLOPES, never cliffs. The walkable floor RAMPS DOWN from `surf` into
+// the submerged shelf and RAMPS BACK UP to `surf` on the far side, so:
+//   - the player WADES down into the water (no free-fall off a ledge into a
+//     shallow detection band that they overshoot — the old fall-through cause),
+//   - the whole channel floor is one continuous solid surface (no gap, no
+//     death-fall even if buoyancy is somehow skipped),
+//   - climbing OUT is just running up the far ramp (the step-up assist is a
+//     safety net, not the primary mechanism).
+// The water covers ONLY this stretch; everything before/after is dry track.
+// Returns the Z just past the exit bank so the caller keeps building seamlessly.
 function placeWaterSection(world, b, z, surf, laneW) {
   const laneHalf = laneW / 2;
-  const poolLen = rand(20, 28);          // length of the swim channel
+  const swimLen = rand(16, 22);          // length of the deep (swim) middle
+  const rampLen = 5;                     // entry/exit slope length (gentle wade)
   const floorDrop = 3.2;                 // how far the submerged floor sits below the surface
-  const floorTop = surf - floorDrop;     // walkable pool-bottom height (solid, so no death-fall)
+  const floorTop = surf - floorDrop;     // deep pool-bottom height (solid, so no death-fall)
 
-  // Entry lip so you can't clip the near wall, then the submerged floor slab.
-  const midZ = z + poolLen / 2;
-  // Solid pool floor (players who sink can push off it; also stops fall-off).
-  world.addSurface(0, floorTop, midZ, laneW, poolLen, b.rock, {});
-  // Side walls contain the channel visually + physically.
+  // --- ENTRY slope: solid floor ramps from surf DOWN to the pool bottom, so the
+  //     player walks/wades in instead of running off a cliff edge. ---
+  world.addRamp(0, z, z + rampLen, surf, floorTop, laneW, b.rock);
+  const deepZ0 = z + rampLen;
+
+  // --- DEEP middle: flat submerged floor slab. ---
+  const midZ = deepZ0 + swimLen / 2;
+  world.addSurface(0, floorTop, midZ, laneW, swimLen, b.rock, {});
+  const deepZ1 = deepZ0 + swimLen;
+
+  // --- EXIT slope: solid floor ramps from the pool bottom back UP to surf. The
+  //     player simply runs up it to leave the water — no ledge to clip. ---
+  world.addRamp(0, deepZ1, deepZ1 + rampLen, floorTop, surf, laneW, b.rock);
+  const poolZ0 = z, poolZ1 = deepZ1 + rampLen;
+  const poolLen = poolZ1 - poolZ0;
+  const poolMidZ = (poolZ0 + poolZ1) / 2;
+
+  // Side walls contain the whole channel visually + physically.
   for (const side of [-1, 1]) {
-    world.addPlatform(side * (laneHalf + 0.3), surf - 0.4, midZ, 0.6, floorDrop + 1.4, poolLen, b.accent);
+    world.addPlatform(side * (laneHalf + 0.3), surf - 0.4, poolMidZ, 0.6, floorDrop + 1.4, poolLen, b.accent);
   }
-  // The water volume itself: surface exactly at `surf`, reaching down to the floor.
-  world.addWater(0, surf, midZ, laneW - 0.4, poolLen, floorDrop + 0.3, biomeWater(b));
-  // Decorate the banks so the pool reads as an intentional feature.
-  decorateSides(world, b, z - 1, z + poolLen + 1, surf, laneHalf);
 
-  // Far exit bank: a short gentle ramp up out of the water back to `surf` — the
-  // floor already meets `surf` at the ends, so this is just a clean landing pad.
+  // The water volume: surface at `surf`, spanning the FULL channel (both slopes
+  // + deep middle) so wading in/out is always "in water". A small overshoot band
+  // above the surface (0.5) guarantees a surface-level body is detected as
+  // swimming the instant it crosses in, before gravity can pull it under.
+  world.addWater(0, surf, poolMidZ, laneW - 0.4, poolLen, floorDrop + 0.3, biomeWater(b));
+
+  // Decorate the banks so the pool reads as an intentional feature.
+  decorateSides(world, b, z - 1, poolZ1 + 1, surf, laneHalf);
+
+  // Far exit bank: a short flat landing pad continuing at `surf`.
   const bankLen = 6;
-  world.addSurface(0, surf, z + poolLen + bankLen / 2, laneW, bankLen, b.ground2, {});
-  return z + poolLen + bankLen;
+  world.addSurface(0, surf, poolZ1 + bankLen / 2, laneW, bankLen, b.ground2, {});
+  return poolZ1 + bankLen;
 }
 
 // Pick a water tint that suits the biome (still clearly "water", just themed).
@@ -217,11 +241,16 @@ function buildRace(world, cfg) {
         const run = Math.max(8, (surf - START_TOP) * 2.2);
         world.addRamp(0, z, z + run, surf, START_TOP, laneW, b.ground2);
         z += run; surf = START_TOP;
-        // a short flat lead-in so the bank reads cleanly
-        world.addSurface(0, surf, z + 3, laneW, 6, b.ground2, {});
-        decorateSides(world, b, z, z + 6, surf, laneHalf);
-        z += 6;
       }
+      // ALWAYS lay a DEAD-FLAT lead-in slab right up to the pool (real-world bug
+      // fix): the pool must be approached over flat ground, never off the crest
+      // of a rolling/undulating segment where a fast runner's feet lift off and
+      // they sail past the water's entry band into the void. This flat slab
+      // butts directly against the pool's entry ramp with no seam/gap.
+      const leadLen = 8;
+      world.addSurface(0, surf, z + leadLen / 2, laneW, leadLen, b.ground2, {});
+      decorateSides(world, b, z, z + leadLen, surf, laneHalf);
+      z += leadLen;
       z = placeWaterSection(world, b, z, surf, laneW);
       waterPlaced = true;
       seg++;

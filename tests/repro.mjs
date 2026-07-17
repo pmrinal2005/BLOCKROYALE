@@ -49,13 +49,17 @@ console.log('\n=== BUG #1: human can punch a nearby player (various relative pos
   ok('HUMAN aim-assist: hits target to the SIDE (+X) while facing +Z', trial(0, 1.2, true, true));
   ok('HUMAN aim-assist: hits target BEHIND while facing +Z', trial(-1.2, 0, true, true));
   ok('HUMAN aim-assist: hits target when idle & un-aimed', trial(1.0, 1.0, false, true));
-  // a target BEHIND should NOT be hit (cone is forward-only)
+  // A target clearly OUT OF REACH must never be hit — aim-assist auto-acquires
+  // the nearest rival in ANY direction (that IS the "punch the player next to
+  // me" fix, so a target behind you at close range SHOULD now connect), but it
+  // must still respect the MELEE_RANGE reach so it never grabs someone across
+  // the map. (Aim-assist is on by default for every entity now.)
   const a = new Entity({ isBot: false }); const b = new Entity({ isBot: true });
-  a.respawnAt({ x: 0, y: 0.2, z: 0 }); b.respawnAt({ x: 0, y: 0.2, z: -1.2 });
+  a.respawnAt({ x: 0, y: 0.2, z: 0 }); b.respawnAt({ x: 0, y: 0.2, z: -8 });
   a.grounded = b.grounded = true; a.intent.melee = true; a.tick(flat, DT);
   let behindHit = false;
   for (let i = 0; i < 12; i++) { checkMeleeHits([a, b], (att, h) => { if (h) behindHit = true; }); a.tick(flat, DT); b.tick(flat, DT); }
-  ok('punch does NOT hit a target directly behind', !behindHit);
+  ok('punch does NOT hit an out-of-reach target (8u away)', !behindHit);
 }
 
 console.log('\n=== BUG #2: water exit — swimmer climbs out onto the bank, does not fall through ===');

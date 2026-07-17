@@ -567,7 +567,11 @@ export class World {
     for (const w of this.waterZones) {
       if (x < w.minX || x > w.maxX) continue;
       if (z < w.minZ || z > w.maxZ) continue;
-      if (y < w.minY - 0.2 || y > w.maxY + 0.2) continue;
+      // Generous vertical band: catch a body from a little ABOVE the surface
+      // (so someone wading/dropping in at the waterline is flagged swimming
+      // immediately, before gravity can fling them past the volume — the
+      // real-world fall-through cause) down to just below the floor.
+      if (y < w.minY - 0.5 || y > w.maxY + 0.7) continue;
       return w;
     }
     return null;

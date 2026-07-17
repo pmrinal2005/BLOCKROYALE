@@ -19,7 +19,12 @@ export const CFG = {
   FLIP_TURNS_PER_SEC: 1.25, // (Task #2) forward-flip speed: one full 360° in ~0.8s
 
   // --- Knockback Melee Ability (Task #3) ---
-  MELEE_COOLDOWN: 4.0,      // seconds between punches (anti-spam)
+  // Spec: "a FAST-cooldown, directional melee attack". A 4s cooldown made the
+  // punch feel like an ultimate, not a snappy shove — and left players unable to
+  // reliably use it in a scrum. Dropped to a short anti-spam window so the punch
+  // is a live, spammable crowd-control tool (the reported "I can't punch" fix is
+  // partly this: the ability was too often still on cooldown).
+  MELEE_COOLDOWN: 1.2,      // seconds between punches (fast, per spec "fast-cooldown")
   MELEE_RANGE: 1.9,         // reach in units (spec: 1.5 melee + player radius fudge)
   MELEE_CONE_DOT: 0.35,     // cos of the half-cone for BOTS => a forward arc (~70° half)
   MELEE_HIT_DOT_ASSIST: -0.2, // human: after aim-assist snaps to face the nearest

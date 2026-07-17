@@ -77,6 +77,16 @@ export class Entity {
     this._meleeFired = false;// ensures the hit is applied exactly once per swing
     this.meleeSuper = false; // this swing combined with a dash/dive (Super Punch)
     this.inputLock = 0;      // directional inputs locked (melee-stun on target)
+    // Aim-assist is ON BY DEFAULT for EVERY entity (Task #3 real-world fix for
+    // "I can't punch players near me"). On a swing the punch auto-acquires the
+    // NEAREST rival within reach in ANY direction (360°) and snaps the attacker
+    // to face them, so a punch always connects with whoever you're standing next
+    // to — even side-on or behind, and even while standing still (yaw only ever
+    // updates while moving, which was the original whiff cause). Bots inherit the
+    // same assist so their shoves land reliably when they close on a rival; they
+    // already steer toward the target before swinging, so their punches still
+    // read as deliberate. game.js may still set this explicitly for clarity.
+    this.meleeAimAssist = true;
 
     // desired horizontal intent (unit-ish vector) & flags per tick
     this.intent = { mx: 0, mz: 0, jump: false, dive: false, melee: false };
