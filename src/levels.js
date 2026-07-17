@@ -194,20 +194,24 @@ function buildRace(world, cfg) {
   let surf = START_TOP;
   let seg = 0;
 
-  // Task #2: place exactly ONE localized water swim-section per race, somewhere
-  // in the middle third of the track, on flat ground (so entry/exit are clean).
+  // Task #2: a localized water swim-section is RANDOM per track — roughly half
+  // of race tracks contain one, the other half are fully dry. The decision is
+  // made ONCE here (a single coin flip) so a given track is deterministically
+  // "wet" or "dry" for its whole length; it is NOT forced into every round.
+  // When a track is chosen to be wet we place exactly one pool in the middle
+  // third (on flat ground for clean entry/exit); when dry we place none at all.
+  const wantWater = Math.random() < CFG.WATER_SPAWN_CHANCE;
   let waterPlaced = false;
   const waterZoneStart = length * 0.34, waterZoneEnd = length * 0.66;
 
   while (z < length) {
     // --- localized WATER SECTION (Task #2): a swim channel across the lane. ---
-    // GUARANTEE (fix): every race MUST contain exactly one swim section. When we
-    // reach the water window and haven't placed it yet, first bring the walkable
-    // surface back down to ground level with a short ramp if we're elevated
-    // (so entry/exit are clean & the pool sits on flat ground), THEN carve the
-    // pool. Previously this required the surface to already be flat by chance,
-    // so ~75% of races had NO water at all — the swimming mechanic was missing.
-    if (!waterPlaced && seg > 1 && z >= waterZoneStart && z < waterZoneEnd) {
+    // Only when THIS track rolled "wet" (wantWater). When we reach the water
+    // window and haven't placed it yet, first bring the walkable surface back
+    // down to ground level with a short ramp if we're elevated (so entry/exit
+    // are clean & the pool sits on flat ground), THEN carve the pool. On "dry"
+    // tracks this whole branch is skipped and no water is ever added.
+    if (wantWater && !waterPlaced && seg > 1 && z >= waterZoneStart && z < waterZoneEnd) {
       if (surf > START_TOP + 0.2) {
         // gentle descent ramp back to ground before the pool
         const run = Math.max(8, (surf - START_TOP) * 2.2);
@@ -325,11 +329,12 @@ function buildRace(world, cfg) {
     z += run; surf = START_TOP;
   }
 
-  // GUARANTEE the swim section (Task #2): if the main loop never got a chance to
-  // place the pool (e.g. the whole water window happened to fall on a long
-  // climb), lay it now on the flat run-in to the finish so EVERY race is
-  // swimmable exactly once.
-  if (!waterPlaced) {
+  // Fallback for WET tracks only (Task #2): if this track rolled "wet" but the
+  // main loop never got a chance to place the pool (e.g. the whole water window
+  // happened to fall on a long climb), lay it now on the flat run-in to the
+  // finish so a wet track always ends up swimmable exactly once. DRY tracks
+  // (wantWater === false) intentionally get no water at all.
+  if (wantWater && !waterPlaced) {
     z = placeWaterSection(world, b, z, surf, laneW);
     waterPlaced = true;
   }

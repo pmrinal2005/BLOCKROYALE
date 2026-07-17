@@ -1,8 +1,10 @@
 // Headless behavioral playtest for Task #2 (localized water / swimming) and
 // the Task #3 spectator target-filtering rules. Uses the pure sim modules
 // (no WebGL) so it runs anywhere Node runs.
+import * as THREE from 'three';
 import { CFG, DT } from '../src/config.js';
 import { Entity } from '../src/entity.js';
+import { buildLevel } from '../src/levels.js';
 
 let pass = 0, fail = 0;
 function ok(name, cond) {
@@ -80,18 +82,30 @@ console.log('\n=== TASK 2: buoyancy lifts a sinking body toward the surface ==='
 // ---------------------------------------------------------------
 console.log('\n=== TASK 2: swim is slower than the run + JUMP swims up ===');
 {
-  // horizontal swim speed should settle well below the ground MOVE_SPEED
+  // horizontal swim speed should settle well below the ground MOVE_SPEED.
+  // IMPORTANT: only sample the speed on ticks where the body is actually IN the
+  // water — a swimmer holding one direction will paddle out of a small pool and
+  // then accelerate to the (faster) DRY running speed, which is expected and
+  // must NOT be counted against the swim-speed cap. We also keep the swimmer
+  // inside the pool by re-centring X when it nears the edge, so we gather a
+  // robust window of genuine in-water samples.
   const e = new Entity({ name: 'Speed', isBot: false });
   e.respawnAt({ x: 0, y: 0.5, z: 0 });
   e.x = 0; e.z = 0;
-  let maxSpeed = 0;
+  let maxSwimSpeed = 0, swimSamples = 0;
   for (let i = 0; i < 90; i++) {
     e.intent.mx = 1; e.intent.mz = 0;   // hold a direction
     e.tick(world, DT);
-    maxSpeed = Math.max(maxSpeed, Math.hypot(e.vx, e.vz));
+    if (e.inWater) {
+      maxSwimSpeed = Math.max(maxSwimSpeed, Math.hypot(e.vx, e.vz));
+      swimSamples++;
+      // stay inside the localized pool so we keep sampling the swim, not the run
+      if (e.x > 3.5) e.x = 0;
+    }
   }
+  ok('gathered in-water swim samples', swimSamples > 10);
   ok('swim horizontal speed is capped near WATER_SWIM_SPEED (slower than run)',
-     maxSpeed <= CFG.WATER_SWIM_SPEED + 0.5 && maxSpeed < CFG.MOVE_SPEED);
+     maxSwimSpeed <= CFG.WATER_SWIM_SPEED + 0.5 && maxSwimSpeed < CFG.MOVE_SPEED);
 
   // JUMP intent in water => upward swim velocity
   const u = new Entity({});
@@ -132,6 +146,32 @@ console.log('\n=== TASK 3: spectator target filter excludes eliminated + qualifi
   ok('next cycles to second target', step(1) === activeTargets[1]);
   ok('next wraps back to first', step(1) === activeTargets[0]);
   ok('prev wraps to last', step(-1) === activeTargets[activeTargets.length - 1]);
+}
+
+// ---------------------------------------------------------------
+// Task #2 (per user MUST): water is RANDOM per track — roughly 50% of RACE
+// tracks contain a swim-section, the other ~50% are fully dry. It must NOT be
+// forced into every round, and survival/king rounds must never get water.
+console.log('\n=== TASK 2: water spawns ~50% of race tracks (random, not every round) ===');
+{
+  const N = 300;
+  let wet = 0, multi = 0;
+  for (let i = 0; i < N; i++) {
+    const w = buildLevel(new THREE.Scene(), { type: 'race', biome: 'jungle', name: 'Round 1' });
+    const n = w.waterZones.length;
+    if (n > 0) wet++;
+    if (n > 1) multi++;
+  }
+  const pct = wet / N;
+  ok(`water present in ~50% of races (got ${(pct * 100).toFixed(1)}%)`, pct > 0.35 && pct < 0.65);
+  ok('some races are fully dry (not guaranteed every round)', wet < N);
+  ok('some races do have water', wet > 0);
+  ok('a wet race has exactly ONE pool (never stacks)', multi === 0);
+
+  const surv = buildLevel(new THREE.Scene(), { type: 'survival', biome: 'lava', name: 'Round 2' });
+  const king = buildLevel(new THREE.Scene(), { type: 'king', biome: 'sky', name: 'Final' });
+  ok('survival rounds never contain water', surv.waterZones.length === 0);
+  ok('king rounds never contain water', king.waterZones.length === 0);
 }
 
 console.log(`\n==== RESULT: ${pass} passed, ${fail} failed ====\n`);

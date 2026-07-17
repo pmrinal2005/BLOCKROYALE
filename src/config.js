@@ -37,6 +37,10 @@ export const CFG = {
   // player's movement state Running -> Swimming: buoyancy fights gravity, motion
   // is slower & heavily damped, and jump/dive are repurposed to swim UP/DOWN.
   // Exiting the volume restores normal running physics & animation instantly.
+  WATER_SPAWN_CHANCE: 0.5,  // (Task #2) a water swim-section is RANDOM per race track:
+                            //   ~50% of race tracks contain one, ~50% are fully dry.
+                            //   Decided once, per track, at build time — NOT guaranteed
+                            //   every round. Survival/King rounds never get water.
   WATER_SWIM_SPEED: 5.2,    // horizontal swim speed (units/s) — slower than the 9.4 run
   WATER_ACCEL: 26,          // gentle in-water acceleration (water is "thick")
   WATER_DRAG: 3.4,          // strong linear damping in every axis (heavy, floaty feel)
