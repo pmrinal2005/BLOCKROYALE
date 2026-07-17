@@ -57,6 +57,32 @@ async function boostrap() {
   // expose for perf diagnostics / e2e tests (no effect on gameplay)
   window.__game = game;
 
+  // DEV-ONLY autoplay hook for headless smoke tests: ?autoplay=1 starts a match
+  // immediately (bypasses the menu click). Guarded by the query param so it has
+  // zero effect on the real deployed game. Also surfaces uncaught errors to a
+  // window flag the console capture can read.
+  if (/[?&]autoplay=1/.test(location.search)) {
+    window.__errors = [];
+    addEventListener('error', (e) => { window.__errors.push(String(e.message || e.error)); console.error('WINDOW_ERROR', e.message, e.error && e.error.stack); });
+    addEventListener('unhandledrejection', (e) => { window.__errors.push('promise:' + String(e.reason)); console.error('PROMISE_REJECTION', e.reason); });
+    setTimeout(() => { try { handlers.onPlay(); console.log('AUTOPLAY: match started'); } catch (err) { console.error('AUTOPLAY start error', err); } }, 800);
+    // Force fast round completion by directly ending the round once it is
+    // playing — this exercises the _endRound -> _advanceOrFinish -> _buildRound
+    // (and eventually _finishMatch/podium) transitions, the real crash suspects.
+    setInterval(() => {
+      const g = game;
+      if (g.state === 'playing') {
+        try { g._endRound('time'); } catch (err) { window.__errors.push('endRound:' + err.message); console.error('ENDROUND_ERR', err && err.stack); }
+      }
+    }, 2500);
+    let lastState = '';
+    setInterval(() => {
+      const s = `${game.state}/${game.roundIndex}`;
+      console.log('STATE', game.state, 'round', game.roundIndex, 'alive', game.entities.filter(e=>e.alive||e.finished).length, 'errs', window.__errors.length);
+      lastState = s;
+    }, 1500);
+  }
+
   setProgress(100, TIPS[4]);
 
   // unlock audio on first interaction

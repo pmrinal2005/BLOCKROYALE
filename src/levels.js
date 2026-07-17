@@ -201,8 +201,23 @@ function buildRace(world, cfg) {
 
   while (z < length) {
     // --- localized WATER SECTION (Task #2): a swim channel across the lane. ---
-    if (!waterPlaced && seg > 1 && z >= waterZoneStart && z < waterZoneEnd &&
-        surf <= START_TOP + 0.2) {
+    // GUARANTEE (fix): every race MUST contain exactly one swim section. When we
+    // reach the water window and haven't placed it yet, first bring the walkable
+    // surface back down to ground level with a short ramp if we're elevated
+    // (so entry/exit are clean & the pool sits on flat ground), THEN carve the
+    // pool. Previously this required the surface to already be flat by chance,
+    // so ~75% of races had NO water at all — the swimming mechanic was missing.
+    if (!waterPlaced && seg > 1 && z >= waterZoneStart && z < waterZoneEnd) {
+      if (surf > START_TOP + 0.2) {
+        // gentle descent ramp back to ground before the pool
+        const run = Math.max(8, (surf - START_TOP) * 2.2);
+        world.addRamp(0, z, z + run, surf, START_TOP, laneW, b.ground2);
+        z += run; surf = START_TOP;
+        // a short flat lead-in so the bank reads cleanly
+        world.addSurface(0, surf, z + 3, laneW, 6, b.ground2, {});
+        decorateSides(world, b, z, z + 6, surf, laneHalf);
+        z += 6;
+      }
       z = placeWaterSection(world, b, z, surf, laneW);
       waterPlaced = true;
       seg++;
@@ -308,6 +323,15 @@ function buildRace(world, cfg) {
     const run = Math.max(10, (surf - START_TOP) * 2.4);
     world.addRamp(0, z, z + run, surf, START_TOP, laneW, b.accent);
     z += run; surf = START_TOP;
+  }
+
+  // GUARANTEE the swim section (Task #2): if the main loop never got a chance to
+  // place the pool (e.g. the whole water window happened to fall on a long
+  // climb), lay it now on the flat run-in to the finish so EVERY race is
+  // swimmable exactly once.
+  if (!waterPlaced) {
+    z = placeWaterSection(world, b, z, surf, laneW);
+    waterPlaced = true;
   }
 
   // finish pad + gate
