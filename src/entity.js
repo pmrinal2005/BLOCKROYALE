@@ -68,6 +68,7 @@ export class Entity {
     // ground) / airborne. Enter/exit transitions fire onWaterEnter/onWaterExit.
     this.inWater = false;
     this.waterSurfaceY = 0;
+    this._waterExitAssist = 0;   // >0 for a short window after leaving water (climb-out)
 
     // ---- Knockback melee state (Task #3) ----
     this.meleeCd = 0;        // cooldown remaining
@@ -95,7 +96,7 @@ export class Entity {
     this._meleeFired = false; this.meleeSuper = false; this.inputLock = 0;
     this.pose.punch = 0;
     // (Task #2) start dry on (re)spawn
-    this.inWater = false; this.waterSurfaceY = 0;
+    this.inWater = false; this.waterSurfaceY = 0; this._waterExitAssist = 0;
     // seed the "last safe" checkpoint at the spawn pad
     this.lastSafeX = sp.x; this.lastSafeY = sp.y; this.lastSafeZ = sp.z;
     this.respawns = 0;
@@ -113,7 +114,7 @@ export class Entity {
     // (Task #2) mid-air respawn must not carry a stale flip.
     this.flipping = false; this.flipT = 0; this.pose.flip = 0;
     // (Task #2) leave water state clean on a mid-air revive.
-    this.inWater = false; this.waterSurfaceY = 0;
+    this.inWater = false; this.waterSurfaceY = 0; this._waterExitAssist = 0;
     this.respawns++;
   }
 
@@ -149,8 +150,13 @@ export class Entity {
       this.waterSurfaceY = zone.surfaceTop;
     } else if (this.inWater) {
       this.inWater = false;
+      // Keep the generous water-exit step-up assist alive for a short window
+      // AFTER leaving the volume so the climb onto the bank completes cleanly
+      // (Task #2 bug fix) before normal tight collision resumes.
+      this._waterExitAssist = CFG.WATER_EXIT_ASSIST_TIME;
       this.onWaterExit && this.onWaterExit();
     }
+    if (this._waterExitAssist > 0) this._waterExitAssist -= dt;
     const swimming = this.inWater;
 
     // ---- Knockback Melee (Task #3) ----

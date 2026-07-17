@@ -21,7 +21,10 @@ export const CFG = {
   // --- Knockback Melee Ability (Task #3) ---
   MELEE_COOLDOWN: 4.0,      // seconds between punches (anti-spam)
   MELEE_RANGE: 1.9,         // reach in units (spec: 1.5 melee + player radius fudge)
-  MELEE_CONE_DOT: 0.55,     // cos of the half-cone => a short, narrow forward cone
+  MELEE_CONE_DOT: 0.35,     // cos of the half-cone for BOTS => a forward arc (~70° half)
+  MELEE_HIT_DOT_ASSIST: -0.2, // human: after aim-assist snaps to face the nearest
+                            //        target, accept a very wide arc so the punch
+                            //        connects with anyone standing beside you.
   MELEE_KNOCKBACK: 15.0,    // horizontal impulse (pushes a target 3-4 body widths)
   MELEE_AIRBORNE_MULT: 1.5, // airborne targets fly 1.5x farther (spec)
   MELEE_AIR_STUN: 0.5,      // airborne targets get a 0.5s ragdoll/stun (spec)
@@ -50,6 +53,8 @@ export const CFG = {
   WATER_SWIM_UP: 6.0,       // upward swim velocity when holding JUMP/up in water
   WATER_SWIM_DOWN: 5.0,     // downward swim (dive) velocity when holding DIVE/down in water
   WATER_MAX_RISE: 4.5,      // clamp buoyant rise so you never rocket out of the pool
+  WATER_EXIT_ASSIST_TIME: 0.6, // seconds of generous step-up help after leaving water
+                            //   so the climb onto the exit bank always completes.
   ICE_FRICTION: 1.6,        // slippery biome damping
   PLAYER_RADIUS: 0.42,      // capsule/AABB half-width
   PLAYER_HEIGHT: 1.7,

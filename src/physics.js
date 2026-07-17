@@ -31,7 +31,17 @@ export function resolveEntity(e, world, dt) {
   const feet = e.y;
   const head = e.y + H;
 
-  const STEP_UP = 0.6;      // how far ABOVE feet a surface can be and still catch
+  // Water-exit assist (Task #2 bug fix): while swimming, the body floats at the
+  // waterline (~0.35 below `surf`), so the exit bank top sits ABOVE the feet by
+  // more than the normal step band — the bank was being rejected and the player
+  // dropped onto the submerged floor / off the track. When the entity is in or
+  // has JUST left water we widen BOTH bands generously so climbing out onto the
+  // bank at (or just above) the waterline catches cleanly, exactly like a step.
+  // Only widen the bands during the EXIT window (just left the water, climbing
+  // out) — NOT while still submerged, where buoyancy must own vertical motion
+  // and a widened down-snap would glue a floating body to the pool floor.
+  const nearWater = !e.inWater && (e._waterExitAssist || 0) > 0;
+  const STEP_UP = nearWater ? 1.6 : 0.6;   // how far ABOVE feet a surface can catch
   const STICK_DOWN = 0.9;   // how far BELOW feet we snap down while grounded
   const wasGrounded = !!e.grounded;
 
@@ -52,8 +62,11 @@ export function resolveEntity(e, world, dt) {
 
     // Consider this top as ground if it is at/below feet (within snap-down
     // when grounded) or just above feet (within step-up when descending/flat).
-    const downBand = wasGrounded ? STICK_DOWN : 0.12;
-    const canLand = e.vy <= 0.5 && feet <= pTop + STEP_UP && feet >= pTop - downBand;
+    const downBand = wasGrounded ? STICK_DOWN : (nearWater ? 1.2 : 0.12);
+    // While climbing out of water the body is rising (vy>0) — don't let the
+    // rising-velocity gate block the catch onto the bank.
+    const vyGate = nearWater ? 6.0 : 0.5;
+    const canLand = e.vy <= vyGate && feet <= pTop + STEP_UP && feet >= pTop - downBand;
     if (canLand) {
       if (pTop > groundY) { groundY = pTop; iceGround = !!p.ice; conveyor = p.conveyor || null; found = true; }
     } else if (feet < pTop - 0.08 && head > pBot + 0.08 && p.sy > 1.2) {
@@ -71,8 +84,9 @@ export function resolveEntity(e, world, dt) {
   // ---- sloped ramps (analytic top surface) ----
   const ry = world.rampHeightAt ? world.rampHeightAt(e.x, e.z) : null;
   if (ry != null) {
-    const downBand = wasGrounded ? STICK_DOWN : 0.12;
-    if (e.vy <= 0.5 && feet <= ry + STEP_UP && feet >= ry - downBand) {
+    const downBand = wasGrounded ? STICK_DOWN : (nearWater ? 1.2 : 0.12);
+    const vyGate = nearWater ? 6.0 : 0.5;
+    if (e.vy <= vyGate && feet <= ry + STEP_UP && feet >= ry - downBand) {
       if (ry > groundY) { groundY = ry; iceGround = false; conveyor = null; found = true; }
     }
   }
@@ -193,10 +207,27 @@ export function checkMeleeHits(entities, onHit) {
     a.meleeActive = 0;
     a._meleeFired = true;                 // one hit test per swing
 
-    const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);   // attacker facing (XZ)
     const range = CFG.MELEE_RANGE + R;
-    let hitAny = false;
 
+    // ---------------------------------------------------------------
+    // AIM ASSIST (fix for "I can't punch players near me").
+    // Previously the punch used a NARROW forward cone locked to the
+    // attacker's yaw, and yaw only ever changes while MOVING. So if you
+    // stood next to someone (not walking into them) the cone pointed at
+    // your last-walked direction and the swing whiffed. We now:
+    //   1) gather EVERY rival in range within the vertical band, and
+    //   2) if the best one is within a GENEROUS arc (or on any entity
+    //      that opts into full aim-assist via `a.meleeAimAssist`, i.e.
+    //      the human), SNAP the attacker to face that target so the hit
+    //      lands. Bots keep a slightly tighter arc so their shoves still
+    //      read as deliberate. Damage stays 0 — pure crowd control.
+    // ---------------------------------------------------------------
+    const fx0 = Math.sin(a.yaw), fz0 = Math.cos(a.yaw);   // attacker facing (XZ)
+    // Human punches get full 360° acquisition of the NEAREST rival in reach
+    // (you always hit whoever you're standing next to). Bots use a forward
+    // arc so their punches stay directional/intentional.
+    const acquireDot = a.meleeAimAssist ? -1.1 : CFG.MELEE_CONE_DOT;
+    const targets = [];
     for (const b of list) {
       if (b === a) continue;
       const dx = b.x - a.x, dz = b.z - a.z;
@@ -204,9 +235,26 @@ export function checkMeleeHits(entities, onHit) {
       if (dy > H) continue;                              // different vertical band
       const dist = Math.hypot(dx, dz);
       if (dist > range || dist < 1e-4) continue;
-      // narrow cone: normalized offset must point roughly the attacker's way
+      const dot = (dx / dist) * fx0 + (dz / dist) * fz0;
+      if (dot < acquireDot) continue;
+      targets.push({ b, dx, dz, dist });
+    }
+    // Face the nearest acquired target so the swing connects (aim assist).
+    if (a.meleeAimAssist && targets.length) {
+      let near = targets[0];
+      for (const t of targets) if (t.dist < near.dist) near = t;
+      a.yaw = Math.atan2(near.dx, near.dz);
+    }
+    const fx = Math.sin(a.yaw), fz = Math.cos(a.yaw);   // (possibly re-aimed) facing
+    // Effective hit cone: humans get a wide, forgiving arc after aim-assist;
+    // bots keep the configured narrower cone.
+    const hitDot = a.meleeAimAssist ? CFG.MELEE_HIT_DOT_ASSIST : CFG.MELEE_CONE_DOT;
+    let hitAny = false;
+
+    for (const { b, dx, dz, dist } of targets) {
+      // wide cone: normalized offset must point roughly the attacker's way
       const dot = (dx / dist) * fx + (dz / dist) * fz;
-      if (dot < CFG.MELEE_CONE_DOT) continue;
+      if (dot < hitDot) continue;
 
       // ---- APPLY IMPACT ----
       // velocity override: kill current momentum + any active jump/dive state

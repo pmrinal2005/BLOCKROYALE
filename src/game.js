@@ -329,6 +329,10 @@ export class Game {
     const arr = [];
     const human = new Entity({ name: this.save.name || 'You', isBot: false, ...this._cosmetics() });
     human.isHuman = true;
+    // Aim-assist for the human's Knockback punch: on swing, auto-face and hit the
+    // nearest rival in reach so "punch the player next to me" always lands, even
+    // when standing still (fix for the reported un-punchable players).
+    human.meleeAimAssist = true;
     this.human = human;
     arr.push(human);
     // bot fill (Section 4)
@@ -367,7 +371,17 @@ export class Game {
       this.human.intent.mx = it.mx; this.human.intent.mz = it.mz;
       if (it.jump) this.human.intent.jump = true;
       if (it.dive) this.human.intent.dive = true;
-      if (it.melee) this.human.intent.melee = true;   // Task #3
+      if (it.melee) {
+        this.human.intent.melee = true;   // Task #3
+        // If the player isn't actively steering, orient the punch toward where
+        // the CAMERA looks so the swing (and its aim-assist snap) reads
+        // naturally as "punch in front of me".
+        if (Math.hypot(it.mx, it.mz) < 0.15) {
+          // Forward (W) maps to entity yaw = -cameraYaw (see input.getIntent),
+          // so face the camera-forward direction consistently.
+          this.human.yaw = -this.input.cameraYaw;
+        }
+      }
     }
 
     // bot brains
